@@ -231,6 +231,8 @@ to another subfolder.
 ## 3.0 – Companion module and distribution
 - [ ] Companion module built against `docs/OSC.md` (actions and feedbacks for all modes)
 - [ ] Download page (konftools.com) with image, configurator, documentation, version history
+- [ ] Download statistics: small script that regularly records the GitHub release download counts
+      (GitHub itself shows no history and keeps traffic data for only 14 days)
 - [ ] Signed Windows EXE / small installer
 
 ---
