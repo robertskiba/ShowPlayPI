@@ -6,6 +6,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0-beta.2] – 2026-09-24
+
 ### Added
 - URLs with umlauts and other non-ASCII characters work everywhere (OSC, `showplaypi.ini`, configurator):
   they are converted to their ASCII form (international host names like Chromium, percent-encoded path
@@ -48,5 +50,6 @@ First beta of ShowPlayPI.
 - Configuration via USB-C depends on the power the computer's USB port delivers.
 - See `ROADMAP.md`, release 1.0, for the complete list.
 
-[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.1...HEAD
+[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.2...HEAD
+[1.0.0-beta.2]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/robertskiba/ShowPlayPI/releases/tag/v1.0.0-beta.1

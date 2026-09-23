@@ -1,7 +1,7 @@
 #pragma compile(Icon, ShowPlayPI-Configurator.ico)
 #pragma compile(ProductName, ShowPlayPI Configurator)
 #pragma compile(FileDescription, ShowPlayPI Configurator)
-#pragma compile(ProductVersion, 1.0.0-beta.1)
+#pragma compile(ProductVersion, 1.0.0-beta.2)
 #pragma compile(FileVersion, 1.0.0.0)
 #pragma compile(OriginalFilename, ShowPlayPI-Configurator.exe)
 
@@ -15,7 +15,7 @@ Opt("MustDeclareVars", 1)
 
 Global Const $g_sIniPath = @ScriptDir & "\showplaypi.ini"
 ; About page values: change these for future releases.
-Global Const $g_sAppVersion = "1.0.0-beta.1"
+Global Const $g_sAppVersion = "1.0.0-beta.2"
 Global Const $g_sDownloadUrl = "https://konftools.com"
 Global Const $g_sSupportEmail = "support@konftools.com"
 

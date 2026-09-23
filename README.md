@@ -7,7 +7,7 @@ ShowPlayPI starts straight into a full-screen browser and shows the website or l
 a stage timer, a countdown, a dashboard, a schedule, a sign. You configure it with a simple Windows program
 or a text file – no Linux, no command line.
 
-> **Status: beta.** ShowPlayPI is in active development. The current version is `1.0.0-beta.1`;
+> **Status: beta.** ShowPlayPI is in active development. The current version is `1.0.0-beta.2`;
 > the first stable release will be 1.0.0. See [known issues](#known-issues) before using it at a show.
 > More modes (video player, Ontime, Bitfocus Companion) are planned – see the [roadmap](ROADMAP.md).
 
