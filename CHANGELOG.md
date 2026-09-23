@@ -6,7 +6,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-First beta of ShowPlayPI – will be released as `1.0.0-beta.1`.
+## [1.0.0-beta.1] – 2026-09-24
+
+First beta of ShowPlayPI.
 
 ### Added
 - **Full-screen kiosk browser** (Chromium on a minimal X11/Openbox session) for `http://`, `https://` and
@@ -37,4 +39,5 @@ First beta of ShowPlayPI – will be released as `1.0.0-beta.1`.
 - Configuration via USB-C depends on the power the computer's USB port delivers.
 - See `ROADMAP.md`, release 1.0, for the complete list.
 
-[Unreleased]: https://github.com/robertskiba/ShowPlayPI/commits/main
+[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.1...HEAD
+[1.0.0-beta.1]: https://github.com/robertskiba/ShowPlayPI/releases/tag/v1.0.0-beta.1
