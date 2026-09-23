@@ -203,6 +203,9 @@ to another subfolder.
 ## 2.2 – Ontime mode
 - [ ] Ontime via Docker, updated at boot together with ShowPlayPI (same `AUTO_UPDATE` rules), data in a
       persistent volume; pinned to a major version, previous image kept for rollback
+- [ ] **Bundled with the image:** the Ontime container image is included in every ShowPlayPI release, so the
+      mode works offline right away; loaded on the first start of the mode ("Preparing Ontime…").
+      License: GPL-3.0 – list in `THIRD-PARTY.md`, license text included, source covered by the written offer.
 - [ ] Full-screen browser with timer URL (view selectable in the INI)
 - [ ] OSC/feedback forwarding where useful (Ontime has its own OSC/HTTP API)
 - [ ] Security: Ontime's own access options exposed in the INI
@@ -210,6 +213,10 @@ to another subfolder.
 ## 2.3 – Companion mode
 - [ ] Companion via Docker, updated at boot (same `AUTO_UPDATE` rules), pinned to a major version
       (e.g. 4.x) so no breaking upgrade happens unasked, previous image kept for rollback; verify data survives updates; test USB surfaces (Stream Deck etc.) in the container
+- [ ] **Bundled with the image:** the Companion container image is included in every ShowPlayPI release, so
+      the mode works offline right away; loaded on the first start of the mode ("Preparing Companion…").
+      License: MIT (core; modules have their own, mostly MIT licenses) – notices in `THIRD-PARTY.md`.
+      Names are used descriptively only ("includes Bitfocus Companion"), no impression of an official product.
 - [ ] Optional lightweight browser (e.g. WPE/cog) for the local emulator page with touch, mouse and keyboard
 - [ ] Security: Companion's own admin password exposed in the INI
 
@@ -237,6 +244,7 @@ to another subfolder.
 | Update channels | Stable channel via tags on `main` or a separate `stable` branch? | 2.0 |
 | OSC naming | Mode commands as `/showplaypi/video/next` or shorter? | 2.0 |
 | Companion in Docker | Only if USB surfaces work reliably – otherwise native install | 2.3 |
+| Image size | Bundled containers add roughly 1–1.5 GB (mostly Companion) – acceptable with the fixed ~12 GB Linux partition? | 2.2 |
 
 ## Decided
 

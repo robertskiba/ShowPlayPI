@@ -64,5 +64,12 @@ Contact: support@konftools.com
 
 ## Container images (future modes)
 
-The planned Ontime and Companion modes download these programs as container images from their official
-publishers at runtime. They are not part of the ShowPlayPI image and remain under their own licenses.
+The planned Ontime and Companion modes will include these programs as container images from their
+official publishers (updated at boot when online). They remain under their own licenses:
+
+| Component | License |
+|---|---|
+| [Ontime](https://github.com/cpvalente/ontime) | GPL-3.0-or-later (covered by the written offer above) |
+| [Bitfocus Companion](https://github.com/bitfocus/companion) | MIT (core); device modules under their own, mostly MIT licenses |
+
+ShowPlayPI is not affiliated with or endorsed by the Ontime or Bitfocus Companion projects.
