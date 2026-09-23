@@ -1,0 +1,234 @@
+#!/usr/bin/python3
+"""Idle timeout for kiosk use: return to the session start page after a period without user input.
+
+Settings in showplaypi.ini, section [BROWSER]:
+  IDLE_TIMEOUT        seconds without touch/mouse/keyboard input, 0 = off
+  IDLE_ACTION         home   = open the start page again if another page is shown
+                      reload = always reset to the start page after user input
+  IDLE_CLEAR_SESSION  yes = clear cookies, form data and logins on reset
+
+The OSC command /showplaypi/idle overrides IDLE_TIMEOUT for the running session
+(file /run/showplaypi/idle-timeout).
+
+A reset only happens after real user input: display-only screens without touch are never reset, and
+a start page that redirects elsewhere does not cause a reset loop.
+"""
+
+import ctypes
+import json
+import logging
+import subprocess
+import time
+import urllib.request
+from pathlib import Path
+
+CONFIG_FILE = Path("/boot/firmware/showplaypi.ini")
+RUNTIME_DIRECTORY = Path("/run/showplaypi")
+IDLE_TIMEOUT_FILE = RUNTIME_DIRECTORY / "idle-timeout"
+SYNTHETIC_INPUT_FILE = RUNTIME_DIRECTORY / "synthetic-input"
+CLEAR_PROFILE_FILE = RUNTIME_DIRECTORY / "clear-profile"
+DEVTOOLS_URL = "http://127.0.0.1:9222/json/list"
+
+POLL_SECONDS = 1.0
+CONFIG_RELOAD_SECONDS = 5.0
+# Input within this many seconds of our own simulated key presses is not counted as user input
+SYNTHETIC_TOLERANCE = 2.0
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s showplaypi-idle: %(message)s")
+log = logging.getLogger("showplaypi-idle")
+
+
+class XScreenSaverInfo(ctypes.Structure):
+    _fields_ = [
+        ("window", ctypes.c_ulong),
+        ("state", ctypes.c_int),
+        ("kind", ctypes.c_int),
+        ("til_or_since", ctypes.c_ulong),
+        ("idle", ctypes.c_ulong),
+        ("eventMask", ctypes.c_ulong),
+    ]
+
+
+class IdleClock:
+    """Milliseconds since the last input event, taken from the X server (XScreenSaver extension)."""
+
+    def __init__(self):
+        self.xlib = ctypes.CDLL("libX11.so.6")
+        self.xss = ctypes.CDLL("libXss.so.1")
+        self.xlib.XOpenDisplay.restype = ctypes.c_void_p
+        self.xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        self.xlib.XDefaultRootWindow.restype = ctypes.c_ulong
+        self.xlib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        self.xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
+        self.xss.XScreenSaverQueryInfo.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.POINTER(XScreenSaverInfo),
+        ]
+        self.display = None
+        self.info = self.xss.XScreenSaverAllocInfo()
+
+    def idle_seconds(self):
+        if self.display is None:
+            # Uses DISPLAY and XAUTHORITY from the environment (set in the service unit)
+            self.display = self.xlib.XOpenDisplay(None)
+            if not self.display:
+                self.display = None
+                return None
+        root = self.xlib.XDefaultRootWindow(self.display)
+        if not self.xss.XScreenSaverQueryInfo(self.display, root, self.info):
+            return None
+        return self.info.contents.idle / 1000.0
+
+
+def ini_values(section_name):
+    values = {}
+    section = ""
+    try:
+        lines = CONFIG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return values
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            continue
+        if section == section_name and "=" in line:
+            key, value = line.split("=", 1)
+            values.setdefault(key.strip(), value.strip())
+    return values
+
+
+def to_seconds(value, default=0):
+    try:
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return seconds if seconds >= 0 else default
+
+
+def read_settings():
+    browser = ini_values("BROWSER")
+    timeout = to_seconds(browser.get("IDLE_TIMEOUT", "0"))
+
+    try:
+        timeout = to_seconds(IDLE_TIMEOUT_FILE.read_text(encoding="utf-8").strip(), timeout)
+    except OSError:
+        pass
+
+    action = browser.get("IDLE_ACTION", "home").strip().lower()
+    if action not in ("home", "reload"):
+        action = "home"
+
+    clear_session = browser.get("IDLE_CLEAR_SESSION", "no").strip().lower() in ("yes", "true", "1", "on")
+    return timeout, action, clear_session
+
+
+def last_synthetic_input():
+    try:
+        return float(SYNTHETIC_INPUT_FILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def start_page():
+    result = subprocess.run(
+        ["/usr/local/bin/showplaypi-current-url"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout.strip()
+
+
+def shown_page():
+    """URL of the page Chromium currently shows, or None if unknown."""
+    try:
+        with urllib.request.urlopen(DEVTOOLS_URL, timeout=2) as response:
+            targets = json.load(response)
+    except (OSError, ValueError):
+        return None
+    for target in targets:
+        if target.get("type") == "page":
+            return target.get("url")
+    return None
+
+
+def same_page(first, second):
+    return first.rstrip("/") == second.rstrip("/")
+
+
+def reset_browser(clear_session):
+    if clear_session:
+        try:
+            CLEAR_PROFILE_FILE.write_text("1\n", encoding="utf-8")
+        except OSError as error:
+            log.warning("Could not request a clean browser profile: %s", error)
+
+    # showplaypi-browser is restarted by the loop in .xinitrc and opens the session start page
+    subprocess.run(["pkill", "-TERM", "-x", "chromium"], check=False)
+
+
+def main():
+    try:
+        clock = IdleClock()
+    except OSError as error:
+        log.error("X libraries not available: %s", error)
+        raise SystemExit(1)
+
+    settings = read_settings()
+    settings_time = time.monotonic()
+    last_input_seen = time.time()
+    user_input_pending = False
+    announced_timeout = None
+    warned_no_idle_time = False
+
+    while True:
+        time.sleep(POLL_SECONDS)
+
+        if time.monotonic() - settings_time >= CONFIG_RELOAD_SECONDS:
+            settings = read_settings()
+            settings_time = time.monotonic()
+
+        timeout, action, clear_session = settings
+        if timeout != announced_timeout:
+            log.info("Idle timeout: %s", f"{timeout} s, action {action}" if timeout else "off")
+            announced_timeout = timeout
+
+        idle = clock.idle_seconds()
+        if idle is None:
+            if timeout and not warned_no_idle_time:
+                log.warning("Cannot read the idle time from the X server – idle timeout inactive")
+                warned_no_idle_time = True
+            continue
+        warned_no_idle_time = False
+
+        now = time.time()
+        input_time = now - idle
+
+        if input_time > last_input_seen + 0.5:
+            last_input_seen = input_time
+            if abs(input_time - last_synthetic_input()) > SYNTHETIC_TOLERANCE:
+                user_input_pending = True
+
+        if not timeout or not user_input_pending or idle < timeout:
+            continue
+
+        user_input_pending = False
+        target = start_page()
+
+        if action == "home":
+            current = shown_page()
+            if current is not None and target and same_page(current, target):
+                continue
+            log.info("Idle for %s s – returning to the start page %s", timeout, target)
+        else:
+            log.info("Idle for %s s – resetting to the start page %s", timeout, target)
+
+        reset_browser(clear_session)
+
+
+if __name__ == "__main__":
+    main()

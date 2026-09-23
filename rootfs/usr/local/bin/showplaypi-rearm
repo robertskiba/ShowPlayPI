@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [[ "${EUID}" -ne 0 ]]; then
+    exec sudo "$0" "$@"
+fi
+
+echo
+echo "ShowPlayPI $(showplaypi-version --short) Pre-Image Cleanup"
+echo "This removes host keys, machine identity, logs, package caches,"
+echo "and temporary files. The Raspberry Pi will shut down afterwards."
+read -r -p "Type REARM to continue: " confirm
+
+if [[ "${confirm}" != "REARM" ]]; then
+    echo "Cancelled."
+    exit 0
+fi
+
+if [[ ! -f /etc/systemd/system/showplaypi-ssh-hostkeys.service ]] || \
+   [[ ! -f /etc/systemd/system/ssh.service.d/showplaypi-hostkeys.conf ]]; then
+    echo "ERROR: Automatic SSH host key generation is not configured."
+    exit 1
+fi
+
+echo "Preparing ShowPlayPI for final imaging ..."
+
+echo "Cleaning package caches, logs, and temporary files ..."
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+rm -f /var/cache/apt/archives/*.deb
+find /var/log -type f -exec truncate -s 0 {} +
+rm -rf /var/log/journal/*
+rm -rf /var/tmp/*
+rm -rf /tmp/*
+rm -rf /var/crash/*
+
+if command -v cloud-init >/dev/null 2>&1; then
+    cloud-init clean --logs
+fi
+
+echo "Removing device-specific identity ..."
+rm -f /etc/ssh/ssh_host_*
+: > /etc/machine-id
+
+if [[ -e /var/lib/dbus/machine-id && ! -L /var/lib/dbus/machine-id ]]; then
+    : > /var/lib/dbus/machine-id
+fi
+
+rm -f /var/lib/systemd/random-seed
+
+echo "Removing shell history and browser profile ..."
+rm -f /home/admin/.bash_history /root/.bash_history
+rm -rf /home/admin/.config/chromium-kiosk
+install -d -o admin -g admin -m 700 /home/admin/.config/chromium-kiosk
+
+sync
+echo "Cleanup complete. Powering off ShowPlayPI now."
+systemctl poweroff

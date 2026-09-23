@@ -1,0 +1,13 @@
+[Unit]
+Description=ShowPlayPI USB configuration drive
+After=local-fs.target
+Before=showplaypi-system-config.service showplaypi-network-config.service multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/showplaypi-usb-gadget start
+ExecStop=/usr/local/sbin/showplaypi-usb-gadget stop
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+CONFIG="/boot/firmware/showplaypi.ini"
+OUTPUT="/home/admin/kiosk/setup.html"
+RELEASE_FILE="/etc/showplaypi-release"
+
+SHOWPLAYPI_VERSION="unknown"
+SHOWPLAYPI_RELEASE_DATE="unknown"
+
+if [[ -r "$RELEASE_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$RELEASE_FILE"
+fi
+
+
+ini_get() {
+    local wanted_section="$1"
+    local wanted_key="$2"
+
+    awk -v wanted_section="$wanted_section" -v wanted_key="$wanted_key" '
+        { sub(/\r$/, "") }
+
+        /^[[:space:]]*[#;]/ { next }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == wanted_section {
+            position = index($0, "=")
+            if (position == 0) next
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == wanted_key) {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+}
+
+html_escape() {
+    printf '%s' "$1" | sed \
+        -e 's/&/\&amp;/g' \
+        -e 's/</\&lt;/g' \
+        -e 's/>/\&gt;/g' \
+        -e 's/"/\&quot;/g' \
+        -e "s/'/\&#39;/g"
+}
+
+HOSTNAME="$(hostname)"
+NETWORK_MODE="$(ini_get NETWORK MODE)"
+STATIC_IP="$(ini_get NETWORK IP)"
+NETMASK="$(ini_get NETWORK NETMASK)"
+CONFIG_GATEWAY="$(ini_get NETWORK GATEWAY)"
+DNS1="$(ini_get NETWORK DNS1)"
+DNS2="$(ini_get NETWORK DNS2)"
+CONFIG_URL="$(ini_get BROWSER URL)"
+
+CURRENT_IPS="$(
+    ip -4 -o addr show scope global 2>/dev/null |
+        awk '{
+            split($4, address, "/")
+            if (result != "") result = result ", "
+            result = result address[1]
+        } END { print result }'
+)"
+
+LIVE_GATEWAY="$(ip -4 route show default 2>/dev/null | awk 'NR == 1 { print $3 }')"
+
+ACTIVE_DNS="$(
+    nmcli -g IP4.DNS device show eth0 2>/dev/null |
+        awk 'NF {
+            if (result != "") result = result ", "
+            result = result $0
+        } END { print result }'
+)"
+
+if [[ -z "$ACTIVE_DNS" ]]; then
+    ACTIVE_DNS="$(
+        awk '/^nameserver[[:space:]]+/ {
+            if (result != "") result = result ", "
+            result = result $2
+        } END { print result }' /etc/resolv.conf
+    )"
+fi
+
+if [[ -z "$CURRENT_IPS" ]]; then
+    CURRENT_IPS="No IPv4 address assigned"
+fi
+
+PRIMARY_IP="${CURRENT_IPS%%,*}"
+
+case "${NETWORK_MODE,,}" in
+    static)
+        NETWORK_SUMMARY="Static IPv4: ${STATIC_IP:-not configured}/${NETMASK:-not configured}"
+        ;;
+    *)
+        NETWORK_SUMMARY="DHCP: network settings are assigned automatically"
+        ;;
+esac
+
+if [[ -n "$CONFIG_GATEWAY" ]]; then
+    NETWORK_SUMMARY+="; configured gateway: $CONFIG_GATEWAY"
+elif [[ -n "$LIVE_GATEWAY" ]]; then
+    NETWORK_SUMMARY+="; active gateway: $LIVE_GATEWAY"
+fi
+
+if [[ -n "$ACTIVE_DNS" ]]; then
+    DNS_SUMMARY="$ACTIVE_DNS"
+elif [[ -n "$DNS1" || -n "$DNS2" ]]; then
+    DNS_SUMMARY="${DNS1:-not configured}${DNS2:+, $DNS2}"
+else
+    DNS_SUMMARY="No DNS server configured"
+fi
+
+if [[ -n "$CONFIG_URL" ]]; then
+    TARGET_SUMMARY="$CONFIG_URL"
+else
+    TARGET_SUMMARY="No target URL configured — local ShowPlayPI setup page is active"
+fi
+
+if [[ "$PRIMARY_IP" == "No IPv4 address assigned" ]]; then
+    SSH_DIRECT="Connect Ethernet first, then use the assigned IP address."
+else
+    SSH_DIRECT="ssh admin@$PRIMARY_IP"
+fi
+
+HOSTNAME_HTML="$(html_escape "$HOSTNAME")"
+CURRENT_IPS_HTML="$(html_escape "$CURRENT_IPS")"
+NETWORK_SUMMARY_HTML="$(html_escape "$NETWORK_SUMMARY")"
+DNS_SUMMARY_HTML="$(html_escape "$DNS_SUMMARY")"
+TARGET_SUMMARY_HTML="$(html_escape "$TARGET_SUMMARY")"
+SSH_DIRECT_HTML="$(html_escape "$SSH_DIRECT")"
+VERSION_HTML="$(html_escape "$SHOWPLAYPI_VERSION")"
+
+
+TEMP_OUTPUT="$(mktemp /home/admin/kiosk/.setup.html.XXXXXX)"
+
+cat > "$TEMP_OUTPUT" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShowPlayPI Setup</title>
+<style>
+:root {
+    --background: #3F444B;
+    --panel: #62666C;
+    --text: #ffffff;
+    --muted: #e2e2e2;
+    --accent: #F7BB30;
+    --line: #7b7f85;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 38px 52px;
+    background: var(--background);
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+main {
+    width: min(1720px, 100%);
+}
+
+header {
+    margin-bottom: 24px;
+}
+
+h1 {
+    margin: 0 0 9px;
+    color: var(--accent);
+    font-size: clamp(48px, 4.2vw, 72px);
+    line-height: 1;
+}
+
+.subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: clamp(21px, 1.7vw, 29px);
+}
+
+.status-grid, .setup-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.status-grid {
+    grid-template-columns: repeat(4, 1fr);
+    margin-bottom: 18px;
+}
+
+.setup-grid {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.panel {
+    padding: 22px 25px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+}
+
+.label {
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 17px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.value {
+    color: var(--accent);
+    font-family: Consolas, monospace;
+    font-size: clamp(18px, 1.45vw, 24px);
+    font-weight: bold;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+h2 {
+    margin: 0 0 12px;
+    font-size: 27px;
+}
+
+p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 20px;
+    line-height: 1.4;
+}
+
+p + p {
+    margin-top: 10px;
+}
+
+code {
+    color: var(--accent);
+    font-family: Consolas, monospace;
+    overflow-wrap: anywhere;
+}
+
+footer {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+    padding-top: 17px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 17px;
+}
+
+.ready {
+    color: var(--accent);
+    font-weight: bold;
+}
+
+@media (max-width: 1150px) {
+    body { align-items: flex-start; padding: 28px; }
+    .status-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 780px) {
+    .status-grid, .setup-grid { grid-template-columns: 1fr; }
+    footer { flex-direction: column; gap: 8px; }
+}
+
+.details-label {
+    margin-top: 16px;
+}
+</style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>Welcome to ShowPlayPI</h1>
+        <p class="subtitle">Your device is running and ready to be configured.</p>
+    </header>
+
+    <section class="status-grid">
+        <article class="panel">
+            <div class="label">Device name</div>
+            <div class="value">$HOSTNAME_HTML.local</div>
+
+        </article>
+
+        <article class="panel">
+            <div class="label">Current IPv4 address</div>
+            <div class="value">$CURRENT_IPS_HTML</div>
+
+            <div class="label details-label">Active DNS server</div>
+            <div class="value">$DNS_SUMMARY_HTML</div>
+        </article>
+
+        <article class="panel">
+            <div class="label">Network configuration</div>
+            <div class="value">$NETWORK_SUMMARY_HTML</div>
+        </article>
+
+        <article class="panel">
+            <div class="label">Configured target page</div>
+            <div class="value">$TARGET_SUMMARY_HTML</div>
+        </article>
+    </section>
+
+    <section class="setup-grid">
+        <article class="panel">
+            <h2>Configure from Windows</h2>
+            <p>Connect ShowPlayPI to a Windows computer using USB-C. The ShowPlayPI configuration drive appears automatically.</p>
+            <p>Run <code>ShowPlayPI-Configurator.exe</code>, or edit <code>showplaypi.ini</code> manually.</p>
+        </article>
+
+        <article class="panel">
+            <h2>Configure using SSH</h2>
+            <p>Direct connection: <code>$SSH_DIRECT_HTML</code> - default password: <code>admin</code></p>
+            <p>Edit <code>/boot/firmware/showplaypi.ini</code><br>(or open <code>showplaypi-config</code> to open it in an editor),<br> then restart ShowPlayPI with <code>sudo reboot</code>.</p>
+        </article>
+    </section>
+
+<footer>
+    <span>
+        ShowPlayPI v$VERSION_HTML ·
+        Configuration file: <code>/boot/firmware/showplaypi.ini</code>
+         · Updates and support: <code>https://konftools.com</code> · <code>support@konftools.com</code>
+    </span>
+    <span class="ready">Ready for configuration</span>
+</footer>
+
+</main>
+</body>
+</html>
+EOF
+
+mv "$TEMP_OUTPUT" "$OUTPUT"

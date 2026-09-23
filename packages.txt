@@ -1,0 +1,32 @@
+# Packages ShowPlayPI installs on top of Raspberry Pi OS Lite (2026-06-18, trixie, arm64).
+# Installed without recommends; dependencies are pulled in by apt automatically and are intentionally
+# not listed here.
+
+# --- Graphical kiosk session ---
+chromium
+xserver-xorg-core
+xserver-xorg-legacy
+xserver-xorg-input-libinput
+xserver-xorg-video-all
+xinit
+x11-xserver-utils
+dbus-x11
+openbox
+unclutter-xfixes
+fonts-dejavu-core
+
+# --- Remote control / VNC ---
+x11vnc
+xdotool
+
+# --- Idle timeout (showplaypi-idle reads the X idle time via libXss) ---
+libxss1
+
+# --- Tools for configuration and the USB gadget ---
+ipcalc
+fatattr
+mc
+
+# --- Boot splash ---
+rpi-splash-screen-support
+imagemagick

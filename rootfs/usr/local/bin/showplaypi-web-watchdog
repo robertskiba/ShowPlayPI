@@ -1,0 +1,199 @@
+#!/bin/bash
+
+CONFIG="/boot/firmware/showplaypi.ini"
+DISPLAY_NAME=":0"
+XAUTHORITY_FILE="/home/admin/.Xauthority"
+DEFAULT_CHECK_INTERVAL=5
+
+ini_get() {
+    local section="$1"
+    local key="$2"
+
+    awk -v wanted_section="$section" -v wanted_key="$key" '
+        {
+            sub(/\r$/, "")
+        }
+
+        /^[[:space:]]*[#;]/ {
+            next
+        }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == wanted_section {
+            position = index($0, "=")
+
+            if (position == 0) {
+                next
+            }
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == wanted_key) {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+}
+
+log_message() {
+    logger -t showplaypi-watchdog "$1"
+    echo "$1"
+}
+
+reload_browser() {
+    local window_id
+
+    window_id="$(
+        DISPLAY="$DISPLAY_NAME" \
+        XAUTHORITY="$XAUTHORITY_FILE" \
+        xdotool search --onlyvisible --class chromium 2>/dev/null |
+        head -1
+    )"
+
+    if [ -z "$window_id" ]; then
+        log_message "Browser reload failed: no Chromium window found."
+        return 1
+    fi
+
+    # Tell showplaypi-idle that this key press is not user input
+    date +%s.%N > /run/showplaypi/synthetic-input 2>/dev/null || true
+
+    DISPLAY="$DISPLAY_NAME" \
+    XAUTHORITY="$XAUTHORITY_FILE" \
+    xdotool key --window "$window_id" --clearmodifiers ctrl+r
+
+    log_message "Browser reload triggered."
+}
+
+previous_state="offline"
+last_reload=0
+
+while true; do
+    URL="$(/usr/local/bin/showplaypi-current-url)"
+    WATCHDOG_ENABLED="$(ini_get BROWSER WATCHDOG_ENABLED)"
+    IGNORE_CERTIFICATES="$(ini_get BROWSER IGNORE_CERTIFICATE_ERRORS)"
+    RELOAD_INTERVAL="$(ini_get BROWSER RELOAD_INTERVAL)"
+    CHECK_INTERVAL="$(ini_get BROWSER WATCHDOG_INTERVAL)"
+
+    if [ -z "$CHECK_INTERVAL" ]; then
+        CHECK_INTERVAL="$DEFAULT_CHECK_INTERVAL"
+    fi
+
+    if ! [[ "$CHECK_INTERVAL" =~ ^[0-9]+$ ]] ||
+       [ "$CHECK_INTERVAL" -lt 2 ] ||
+       [ "$CHECK_INTERVAL" -gt 300 ]; then
+        CHECK_INTERVAL="$DEFAULT_CHECK_INTERVAL"
+    fi
+
+    if ! [[ "$RELOAD_INTERVAL" =~ ^[0-9]+$ ]]; then
+        RELOAD_INTERVAL=0
+    fi
+
+    case "${WATCHDOG_ENABLED,,}" in
+        no|false|0|off)
+            if [ "$previous_state" != "disabled" ]; then
+                log_message "Website watchdog is disabled."
+            fi
+
+            previous_state="disabled"
+            sleep "$CHECK_INTERVAL"
+            continue
+            ;;
+    esac
+
+    case "$URL" in
+        file://*|"")
+            previous_state="local"
+            sleep "$CHECK_INTERVAL"
+            continue
+            ;;
+
+        http://*|https://*)
+            ;;
+
+        *)
+            if [ "$previous_state" != "invalid" ]; then
+                log_message "Invalid browser URL. Web check suspended."
+            fi
+
+            previous_state="invalid"
+            sleep "$CHECK_INTERVAL"
+            continue
+            ;;
+    esac
+
+    CURL_OPTIONS=(
+        --silent
+        --show-error
+        --location
+        --max-redirs 10
+        --output /dev/null
+        --connect-timeout 3
+        --max-time 5
+        --write-out "%{http_code}"
+    )
+
+    case "${IGNORE_CERTIFICATES,,}" in
+        yes|true|1|on)
+            CURL_OPTIONS+=(--insecure)
+            ;;
+    esac
+
+    HTTP_CODE="$(curl "${CURL_OPTIONS[@]}" "$URL" 2>/dev/null)"
+    CURL_RESULT=$?
+
+    case "$HTTP_CODE" in
+        2??|3??|4??)
+            current_state="online"
+            ;;
+        *)
+            current_state="offline"
+            ;;
+    esac
+
+    if [ "$CURL_RESULT" -ne 0 ]; then
+        current_state="offline"
+    fi
+
+    if [ "$current_state" = "online" ] &&
+       [ "$previous_state" != "online" ]; then
+        log_message "Website is available again: $URL"
+        reload_browser
+        last_reload="$(date +%s)"
+    fi
+
+    if [ "$current_state" = "offline" ] &&
+       [ "$previous_state" = "online" ]; then
+        log_message "Website is unavailable: $URL"
+    fi
+
+    if [ "$current_state" = "online" ] &&
+       [ "$RELOAD_INTERVAL" -gt 0 ]; then
+
+        current_time="$(date +%s)"
+
+        if [ "$last_reload" -eq 0 ]; then
+            last_reload="$current_time"
+        fi
+
+        if [ $((current_time - last_reload)) -ge "$RELOAD_INTERVAL" ]; then
+            reload_browser
+            last_reload="$current_time"
+        fi
+    fi
+
+    previous_state="$current_state"
+    sleep "$CHECK_INTERVAL"
+done

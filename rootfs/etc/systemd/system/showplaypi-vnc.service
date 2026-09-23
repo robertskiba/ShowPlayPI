@@ -1,0 +1,15 @@
+[Unit]
+Description=ShowPlayPI VNC
+Wants=network-online.target
+Requires=showplaypi-kiosk.service
+After=network-online.target showplaypi-kiosk.service
+
+[Service]
+Type=simple
+User=admin
+ExecStart=/usr/local/bin/showplaypi-vnc
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

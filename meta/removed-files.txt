@@ -1,0 +1,3 @@
+# Files that earlier ShowPlayPI versions installed and that no longer exist in rootfs/.
+# deploy.sh removes them from a running Pi (a freshly built image never contains them).
+# One absolute path per line.

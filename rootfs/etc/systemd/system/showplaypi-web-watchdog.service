@@ -1,0 +1,14 @@
+[Unit]
+Description=ShowPlayPI Website Watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+ExecStart=/usr/local/bin/showplaypi-web-watchdog
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

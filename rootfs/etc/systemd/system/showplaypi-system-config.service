@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply ShowPlayPI system configuration
+After=local-fs.target
+Before=showplaypi-web-watchdog.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/showplaypi-system-config
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+RELEASE_FILE="/etc/showplaypi-release"
+
+if [[ ! -r "$RELEASE_FILE" ]]; then
+    echo "ShowPlayPI version information is unavailable." >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$RELEASE_FILE"
+
+case "${1:-}" in
+    --short)
+        printf '%s\n' "$SHOWPLAYPI_VERSION"
+        ;;
+    --release-date)
+        printf '%s\n' "$SHOWPLAYPI_RELEASE_DATE"
+        ;;
+    "")
+        printf 'ShowPlayPI v%s — released %s\n' \
+            "$SHOWPLAYPI_VERSION" "$SHOWPLAYPI_RELEASE_DATE"
+        ;;
+    *)
+        echo "Usage: showplaypi-version [--short|--release-date]" >&2
+        exit 2
+        ;;
+esac

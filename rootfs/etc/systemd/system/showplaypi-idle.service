@@ -1,0 +1,15 @@
+[Unit]
+Description=ShowPlayPI idle timeout (return to the start page)
+After=showplaypi-kiosk.service
+
+[Service]
+Type=simple
+User=admin
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/admin/.Xauthority
+ExecStart=/usr/local/bin/showplaypi-idle
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

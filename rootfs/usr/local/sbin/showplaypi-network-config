@@ -1,0 +1,244 @@
+#!/bin/bash
+
+set -u
+
+export LC_ALL=C
+
+CONFIG="/boot/firmware/showplaypi.ini"
+PROFILE="showplaypi-ethernet"
+INTERFACE="eth0"
+
+ini_get() {
+    local section="$1"
+    local key="$2"
+
+    awk -v wanted_section="$section" -v wanted_key="$key" '
+        {
+            sub(/\r$/, "")
+        }
+
+        /^[[:space:]]*[#;]/ {
+            next
+        }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == wanted_section {
+            position = index($0, "=")
+
+            if (position == 0) {
+                next
+            }
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == wanted_key) {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+}
+
+log_message() {
+    logger -t showplaypi-network "$1"
+    echo "$1"
+}
+
+valid_ipv4() {
+    local address="$1"
+    local octet
+    local value
+    local IFS=.
+
+    read -r -a octets <<< "$address"
+
+    [ "${#octets[@]}" -eq 4 ] || return 1
+
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+        value=$((10#$octet))
+        [ "$value" -ge 0 ] && [ "$value" -le 255 ] || return 1
+    done
+}
+
+get_prefix() {
+    local address="$1"
+    local netmask="$2"
+
+    ipcalc "$address" "$netmask" 2>/dev/null |
+        awk '
+            /^Netmask:/ {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "=") {
+                        print $(i + 1)
+                        exit
+                    }
+                }
+            }
+        '
+}
+
+get_network() {
+    local address="$1"
+    local netmask="$2"
+
+    ipcalc "$address" "$netmask" 2>/dev/null |
+        awk '
+            /^Network:/ {
+                split($2, network, "/")
+                print network[1]
+                exit
+            }
+        '
+}
+
+fail() {
+    log_message "Configuration error: $1"
+    exit 1
+}
+
+MODE="$(ini_get NETWORK MODE)"
+IP_ADDRESS="$(ini_get NETWORK IP)"
+NETMASK="$(ini_get NETWORK NETMASK)"
+GATEWAY="$(ini_get NETWORK GATEWAY)"
+DNS1="$(ini_get NETWORK DNS1)"
+DNS2="$(ini_get NETWORK DNS2)"
+
+MODE="${MODE,,}"
+
+case "$MODE" in
+    dhcp)
+        if [ -n "$DNS1" ]; then
+            valid_ipv4 "$DNS1" ||
+                fail "Invalid additional DNS address: $DNS1"
+        fi
+
+        if [ -n "$DNS2" ]; then
+            valid_ipv4 "$DNS2" ||
+                fail "Invalid additional DNS address: $DNS2"
+        fi
+        ;;
+
+    static)
+        valid_ipv4 "$IP_ADDRESS" ||
+            fail "Invalid static IP address: $IP_ADDRESS"
+
+        valid_ipv4 "$NETMASK" ||
+            fail "Invalid subnet mask: $NETMASK"
+
+        PREFIX="$(get_prefix "$IP_ADDRESS" "$NETMASK")"
+
+        if ! [[ "$PREFIX" =~ ^[0-9]+$ ]] ||
+           [ "$PREFIX" -lt 1 ] ||
+           [ "$PREFIX" -gt 32 ]; then
+            fail "Invalid or non-contiguous subnet mask: $NETMASK"
+        fi
+
+        DEVICE_NETWORK="$(get_network "$IP_ADDRESS" "$NETMASK")"
+
+        if [ -n "$GATEWAY" ]; then
+            valid_ipv4 "$GATEWAY" ||
+                fail "Invalid gateway address: $GATEWAY"
+
+            GATEWAY_NETWORK="$(get_network "$GATEWAY" "$NETMASK")"
+
+            if [ "$DEVICE_NETWORK" != "$GATEWAY_NETWORK" ]; then
+                fail "Gateway is outside the configured subnet."
+            fi
+        fi
+
+        if [ -n "$DNS1" ]; then
+            valid_ipv4 "$DNS1" ||
+                fail "Invalid primary DNS address: $DNS1"
+        fi
+
+        if [ -n "$DNS2" ]; then
+            valid_ipv4 "$DNS2" ||
+                fail "Invalid secondary DNS address: $DNS2"
+        fi
+        ;;
+
+    *)
+        fail "NETWORK MODE must be dhcp or static."
+        ;;
+esac
+
+if [ "${1:-}" = "--check" ]; then
+    echo "Network configuration is valid."
+    echo "MODE=$MODE"
+
+    if [ "$MODE" = "static" ]; then
+        echo "IP=$IP_ADDRESS/$PREFIX"
+        echo "NETMASK=$NETMASK"
+        echo "GATEWAY=$GATEWAY"
+        echo "DNS1=$DNS1"
+        echo "DNS2=$DNS2"
+    fi
+
+    exit 0
+fi
+
+if ! nmcli connection show "$PROFILE" >/dev/null 2>&1; then
+    nmcli connection add \
+        type ethernet \
+        ifname "$INTERFACE" \
+        con-name "$PROFILE"
+fi
+
+nmcli connection modify "$PROFILE" \
+    connection.interface-name "$INTERFACE" \
+    connection.autoconnect yes \
+    connection.autoconnect-priority 100 \
+    ipv6.method auto
+
+DNS_SERVERS=""
+
+if [ -n "$DNS1" ]; then
+    DNS_SERVERS="$DNS1"
+fi
+
+if [ -n "$DNS2" ]; then
+    DNS_SERVERS="${DNS_SERVERS:+$DNS_SERVERS,}$DNS2"
+fi
+
+if [ "$MODE" = "dhcp" ]; then
+    nmcli connection modify "$PROFILE" \
+        ipv4.method auto \
+        ipv4.addresses "" \
+        ipv4.gateway "" \
+        ipv4.dns "$DNS_SERVERS" \
+        ipv4.ignore-auto-dns no \
+        ipv4.never-default no
+else
+
+    nmcli connection modify "$PROFILE" \
+        ipv4.method manual \
+        ipv4.addresses "$IP_ADDRESS/$PREFIX" \
+        ipv4.gateway "$GATEWAY" \
+        ipv4.dns "$DNS_SERVERS" \
+        ipv4.ignore-auto-dns yes
+
+    if [ -n "$GATEWAY" ]; then
+        nmcli connection modify "$PROFILE" ipv4.never-default no
+    else
+        nmcli connection modify "$PROFILE" ipv4.never-default yes
+    fi
+fi
+
+log_message "Network profile prepared successfully in $MODE mode."
+
+if [ "${1:-}" = "--apply" ]; then
+    log_message "Activating network profile: $PROFILE"
+    nmcli connection up "$PROFILE"
+fi

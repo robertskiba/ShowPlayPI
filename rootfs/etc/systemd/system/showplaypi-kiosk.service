@@ -1,0 +1,26 @@
+[Unit]
+Description=ShowPlayPI Kiosk
+Wants=network-online.target
+After=network-online.target systemd-user-sessions.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+PAMName=login
+WorkingDirectory=/home/admin
+Environment=HOME=/home/admin
+TTYPath=/dev/tty1
+StandardInput=tty-force
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=no
+ExecStart=/usr/bin/startx -- vt1 -keeptty
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

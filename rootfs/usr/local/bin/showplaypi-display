@@ -1,0 +1,168 @@
+#!/bin/bash
+
+CONFIG="/boot/firmware/showplaypi.ini"
+DEFAULT_RESOLUTION="1920x1080"
+DEFAULT_REFRESH="60"
+
+ini_get() {
+    local section="$1"
+    local key="$2"
+
+    awk -v wanted_section="$section" -v wanted_key="$key" '
+        {
+            sub(/\r$/, "")
+        }
+
+        /^[[:space:]]*[#;]/ {
+            next
+        }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == wanted_section {
+            position = index($0, "=")
+
+            if (position == 0) {
+                next
+            }
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == wanted_key) {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+}
+
+log_message() {
+    logger -t showplaypi-display "$1"
+    echo "$1"
+}
+
+valid_resolution() {
+    [[ "$1" =~ ^[0-9]{3,5}x[0-9]{3,5}$ ]]
+}
+
+valid_refresh() {
+    [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+apply_mode() {
+    local output="$1"
+    local resolution="$2"
+    local refresh="$3"
+
+    if xrandr --output "$output" \
+        --mode "$resolution" \
+        --rate "$refresh" \
+        --primary 2>/dev/null; then
+
+        log_message \
+            "Display mode applied: $output $resolution at ${refresh} Hz"
+
+        return 0
+    fi
+
+    log_message \
+        "Requested display mode is unavailable: $resolution at ${refresh} Hz"
+
+    return 1
+}
+
+MODE="$(ini_get DISPLAY MODE)"
+FALLBACK="$(ini_get DISPLAY FALLBACK)"
+RESOLUTION="$(ini_get DISPLAY RESOLUTION)"
+REFRESH="$(ini_get DISPLAY REFRESH)"
+
+MODE="${MODE,,}"
+
+OUTPUT="$(
+    xrandr --query |
+    awk '/ connected/ { print $1; exit }'
+)"
+
+if [ -z "$OUTPUT" ]; then
+    log_message "No active display output was found."
+    exit 1
+fi
+
+EDID_AVAILABLE="no"
+
+for EDID_FILE in /sys/class/drm/card*-HDMI-A-1/edid; do
+    if [ "$(wc -c < "$EDID_FILE" 2>/dev/null)" -gt 0 ]; then
+        EDID_AVAILABLE="yes"
+        break
+    fi
+done
+
+
+case "$MODE" in
+    auto)
+        if [ "$EDID_AVAILABLE" = "yes" ]; then
+            if xrandr --output "$OUTPUT" --auto --primary; then
+                log_message \
+                    "Display configured automatically from EDID on $OUTPUT."
+                exit 0
+            fi
+        fi
+
+        FALLBACK_RESOLUTION="${FALLBACK%@*}"
+        FALLBACK_REFRESH="${FALLBACK#*@}"
+
+        if ! valid_resolution "$FALLBACK_RESOLUTION" ||
+           ! valid_refresh "$FALLBACK_REFRESH"; then
+
+            FALLBACK_RESOLUTION="$DEFAULT_RESOLUTION"
+            FALLBACK_REFRESH="$DEFAULT_REFRESH"
+
+            log_message \
+                "Invalid fallback mode. Using 1920x1080 at 60 Hz."
+        fi
+
+        apply_mode \
+            "$OUTPUT" \
+            "$FALLBACK_RESOLUTION" \
+            "$FALLBACK_REFRESH" ||
+        apply_mode \
+            "$OUTPUT" \
+            "$DEFAULT_RESOLUTION" \
+            "$DEFAULT_REFRESH"
+        ;;
+
+    fixed)
+        if ! valid_resolution "$RESOLUTION" ||
+           ! valid_refresh "$REFRESH"; then
+
+            log_message \
+                "Invalid fixed display mode. Using 1920x1080 at 60 Hz."
+
+            RESOLUTION="$DEFAULT_RESOLUTION"
+            REFRESH="$DEFAULT_REFRESH"
+        fi
+
+        apply_mode "$OUTPUT" "$RESOLUTION" "$REFRESH" ||
+        apply_mode \
+            "$OUTPUT" \
+            "$DEFAULT_RESOLUTION" \
+            "$DEFAULT_REFRESH"
+        ;;
+
+    *)
+        log_message \
+            "Invalid display mode. Using automatic mode."
+
+        xrandr --output "$OUTPUT" --auto --primary
+        ;;
+esac

@@ -1,0 +1,18 @@
+# systemd units that ShowPlayPI enables or disables.
+# Format: enable|disable <unit>
+# Applied by build/build.sh (new image) and deploy.sh (running Pi).
+
+enable showplaypi-system-config.service
+enable showplaypi-network-config.service
+enable showplaypi-usb-gadget.service
+enable showplaypi-kiosk.service
+enable showplaypi-vnc.service
+enable showplaypi-web-watchdog.service
+enable showplaypi-osc.service
+enable showplaypi-idle.service
+enable ssh.service
+
+# tty1 belongs to the kiosk session (showplaypi-kiosk.service starts X there)
+disable getty@tty1.service
+# No setup wizard on first boot – the user admin already exists
+disable userconfig.service

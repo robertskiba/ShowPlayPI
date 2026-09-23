@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply ShowPlayPI network configuration
+After=NetworkManager.service showplaypi-system-config.service
+Wants=NetworkManager.service
+Before=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/showplaypi-network-config --apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

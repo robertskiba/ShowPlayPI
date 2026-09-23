@@ -1,0 +1,8 @@
+#!/bin/sh
+
+sudo mcedit /boot/firmware/showplaypi.ini
+
+echo
+echo "ShowPlayPI configuration saved."
+echo "Restart to apply changes: sudo reboot"
+echo

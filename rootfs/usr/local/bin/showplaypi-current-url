@@ -1,0 +1,70 @@
+#!/bin/bash
+
+CONFIG="/boot/firmware/showplaypi.ini"
+RUNTIME_URL_FILE="/run/showplaypi/runtime-url"
+DEFAULT_URL="file:///home/admin/kiosk/setup.html"
+
+validate_url() {
+    case "$1" in
+        http://*|https://*|file://*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+if [ -s "$RUNTIME_URL_FILE" ]; then
+    RUNTIME_URL="$(head -n 1 "$RUNTIME_URL_FILE" | tr -d '\r\n')"
+
+    if validate_url "$RUNTIME_URL"; then
+        printf '%s\n' "$RUNTIME_URL"
+        exit 0
+    fi
+fi
+
+CONFIG_URL="$(
+    awk '
+        {
+            sub(/\r$/, "")
+        }
+
+        /^[[:space:]]*[#;]/ {
+            next
+        }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == "BROWSER" {
+            position = index($0, "=")
+
+            if (position == 0) {
+                next
+            }
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == "URL") {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+)"
+
+if validate_url "$CONFIG_URL"; then
+    printf '%s\n' "$CONFIG_URL"
+else
+    printf '%s\n' "$DEFAULT_URL"
+fi

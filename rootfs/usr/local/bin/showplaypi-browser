@@ -1,0 +1,121 @@
+#!/bin/bash
+
+CONFIG="/boot/firmware/showplaypi.ini"
+DEFAULT_URL="file:///home/admin/kiosk/setup.html"
+PROFILE_DIR="/home/admin/.config/chromium-kiosk"
+
+# Refresh the local setup page with current device and network information.
+/usr/local/bin/showplaypi-write-setup-page || \
+    logger -t showplaypi-browser "Unable to refresh local setup page."
+
+ini_get() {
+    local section="$1"
+    local key="$2"
+
+    awk -v wanted_section="$section" -v wanted_key="$key" '
+        {
+            sub(/\r$/, "")
+        }
+
+        /^[[:space:]]*[#;]/ {
+            next
+        }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == wanted_section {
+            position = index($0, "=")
+
+            if (position == 0) {
+                next
+            }
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == wanted_key) {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+}
+
+URL="$(/usr/local/bin/showplaypi-current-url)"
+IGNORE_CERTIFICATES="$(ini_get BROWSER IGNORE_CERTIFICATE_ERRORS)"
+
+if [ -z "$URL" ]; then
+    URL="$DEFAULT_URL"
+fi
+
+case "$URL" in
+    http://*|https://*|file://*)
+        ;;
+    *)
+        URL="$DEFAULT_URL"
+        ;;
+esac
+
+CHROMIUM_OPTIONS=(
+    --kiosk
+    --no-first-run
+    --disable-session-crashed-bubble
+    --disable-infobars
+    --disable-features=Translate,TranslateUI
+    --password-store=basic
+    --user-data-dir="$PROFILE_DIR"
+    # Local only: lets showplaypi-idle read the URL of the page currently shown
+    --remote-debugging-port=9222
+)
+
+case "${IGNORE_CERTIFICATES,,}" in
+    yes|true|1|on)
+        CHROMIUM_OPTIONS+=(--ignore-certificate-errors)
+        ;;
+esac
+
+if [ "$1" = "--check" ]; then
+    echo "URL=$URL"
+    echo "IGNORE_CERTIFICATE_ERRORS=$IGNORE_CERTIFICATES"
+    exit 0
+fi
+
+# Idle reset with IDLE_CLEAR_SESSION=yes: start with an empty profile (no cookies, logins, form data).
+CLEAR_PROFILE_FILE="/run/showplaypi/clear-profile"
+
+if [ -e "$CLEAR_PROFILE_FILE" ] && ! pgrep -u "$(id -u)" -x chromium >/dev/null 2>&1; then
+    rm -rf "$PROFILE_DIR"
+    mkdir -p -m 700 "$PROFILE_DIR"
+    rm -f "$CLEAR_PROFILE_FILE"
+    logger -t showplaypi-browser "Browser session cleared."
+fi
+
+# Remove stale Chromium profile locks only when no Chromium process is running.
+if ! pgrep -u "$(id -u)" -x chromium >/dev/null 2>&1; then
+    if [ -e "$PROFILE_DIR/SingletonLock" ] ||
+       [ -e "$PROFILE_DIR/SingletonCookie" ] ||
+       [ -e "$PROFILE_DIR/SingletonSocket" ] ||
+       [ -L "$PROFILE_DIR/SingletonLock" ] ||
+       [ -L "$PROFILE_DIR/SingletonCookie" ] ||
+       [ -L "$PROFILE_DIR/SingletonSocket" ]; then
+
+        rm -f \
+            "$PROFILE_DIR/SingletonLock" \
+            "$PROFILE_DIR/SingletonCookie" \
+            "$PROFILE_DIR/SingletonSocket"
+
+        logger -t showplaypi-browser \
+            "Removed stale Chromium profile lock."
+    fi
+fi
+
+exec chromium "${CHROMIUM_OPTIONS[@]}" "$URL"

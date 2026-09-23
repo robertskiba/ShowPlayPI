@@ -1,0 +1,436 @@
+#!/usr/bin/python3
+
+import logging
+import os
+import socket
+import struct
+import subprocess
+import time
+from pathlib import Path
+
+OSC_HOST = "0.0.0.0"
+OSC_PORT = 9000
+
+DISPLAY = ":0"
+XAUTHORITY = "/home/admin/.Xauthority"
+
+RUNTIME_DIRECTORY = Path("/run/showplaypi")
+RUNTIME_URL_FILE = RUNTIME_DIRECTORY / "runtime-url"
+# Session override for [BROWSER] IDLE_TIMEOUT, read by showplaypi-idle
+IDLE_TIMEOUT_FILE = RUNTIME_DIRECTORY / "idle-timeout"
+# Time of our own simulated key presses, so showplaypi-idle does not mistake them for user input
+SYNTHETIC_INPUT_FILE = RUNTIME_DIRECTORY / "synthetic-input"
+
+CONFIG_FILE = Path("/boot/firmware/showplaypi.ini")
+DEFAULT_URL = "file:///home/admin/kiosk/setup.html"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s showplaypi-osc: %(message)s",
+)
+
+log = logging.getLogger("showplaypi-osc")
+
+
+
+def ini_value(section_name, key_name, default_value):
+    current_section = ""
+
+    try:
+        lines = CONFIG_FILE.read_text(
+            encoding="utf-8",
+            errors="replace",
+        ).splitlines()
+    except OSError as error:
+        log.error("Could not read showplaypi.ini: %s", error)
+        return default_value
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        if not line or line.startswith(("#", ";")):
+            continue
+
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line[1:-1].strip()
+            continue
+
+        if current_section == section_name and "=" in line:
+            key, value = line.split("=", 1)
+
+            if key.strip() == key_name:
+                return value.strip()
+
+    return default_value
+
+
+def ini_boolean(section_name, key_name, default_value):
+    default_text = "yes" if default_value else "no"
+    value = ini_value(section_name, key_name, default_text)
+    return value.strip().lower() in ("yes", "true", "1", "on")
+
+def read_osc_string(data, offset):
+    end = data.find(b"\0", offset)
+
+    if end < 0:
+        raise ValueError("OSC string is not terminated")
+
+    value = data[offset:end].decode("utf-8")
+    offset = (end + 4) & ~3
+    return value, offset
+
+
+def parse_osc_message(data):
+    address, offset = read_osc_string(data, 0)
+    type_tags, offset = read_osc_string(data, offset)
+
+    if not type_tags.startswith(","):
+        raise ValueError("OSC type tag is missing")
+
+    arguments = []
+
+    for type_tag in type_tags[1:]:
+        if type_tag == "s":
+            value, offset = read_osc_string(data, offset)
+            arguments.append(value)
+        elif type_tag == "i":
+            arguments.append(struct.unpack_from(">i", data, offset)[0])
+            offset += 4
+        elif type_tag == "f":
+            arguments.append(struct.unpack_from(">f", data, offset)[0])
+            offset += 4
+        elif type_tag == "T":
+            arguments.append(True)
+        elif type_tag == "F":
+            arguments.append(False)
+        else:
+            raise ValueError(f"Unsupported OSC type tag: {type_tag}")
+
+    return address, arguments
+
+
+def valid_url(value):
+    return value.startswith(("http://", "https://", "file://"))
+
+
+def configured_url():
+    section = ""
+
+    try:
+        for raw_line in CONFIG_FILE.read_text(
+            encoding="utf-8",
+            errors="replace",
+        ).splitlines():
+            line = raw_line.strip()
+
+            if not line or line.startswith(("#", ";")):
+                continue
+
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip()
+                continue
+
+            if section == "BROWSER" and "=" in line:
+                key, value = line.split("=", 1)
+
+                if key.strip() == "URL":
+                    value = value.strip()
+
+                    if valid_url(value):
+                        return value
+    except OSError as error:
+        log.error("Could not read showplaypi.ini: %s", error)
+
+    return DEFAULT_URL
+
+
+def chromium_window():
+    environment = os.environ.copy()
+    environment["DISPLAY"] = DISPLAY
+    environment["XAUTHORITY"] = XAUTHORITY
+
+    result = subprocess.run(
+        [
+            "xdotool",
+            "search",
+            "--onlyvisible",
+            "--class",
+            "chromium",
+        ],
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    for line in result.stdout.splitlines():
+        if line.strip().isdigit():
+            return line.strip()
+
+    return None
+
+
+def xdotool(*arguments):
+    window_id = chromium_window()
+
+    if window_id is None:
+        raise RuntimeError("No visible Chromium window found")
+
+    environment = os.environ.copy()
+    environment["DISPLAY"] = DISPLAY
+    environment["XAUTHORITY"] = XAUTHORITY
+
+    subprocess.run(
+        ["xdotool", *arguments],
+        env=environment,
+        check=True,
+    )
+
+    return window_id
+
+
+def restart_chromium():
+    result = subprocess.run(
+        ["pkill", "-TERM", "-x", "chromium"],
+        check=False,
+    )
+
+    if result.returncode not in (0, 1):
+        raise RuntimeError(
+            f"Could not restart Chromium: exit code {result.returncode}"
+        )
+
+    log.info("Chromium restart triggered")
+
+
+def open_url(url):
+    if not valid_url(url):
+        raise ValueError("URL must begin with http://, https:// or file://")
+
+    RUNTIME_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+    temporary_file = RUNTIME_URL_FILE.with_suffix(".new")
+    temporary_file.write_text(url + "\n", encoding="utf-8")
+    temporary_file.replace(RUNTIME_URL_FILE)
+
+    restart_chromium()
+    log.info("Runtime URL selected: %s", url)
+
+
+def set_idle_timeout(arguments):
+    # Session-only: overrides [BROWSER] IDLE_TIMEOUT until the next reboot.
+    if len(arguments) != 1 or isinstance(arguments[0], bool):
+        raise ValueError("/showplaypi/idle requires one number argument (seconds)")
+
+    try:
+        seconds = int(float(arguments[0]))
+    except (TypeError, ValueError):
+        raise ValueError("/showplaypi/idle requires one number argument (seconds)")
+
+    if seconds < 0 or seconds > 86400:
+        raise ValueError("/showplaypi/idle accepts 0 (off) to 86400 seconds")
+
+    RUNTIME_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    temporary_file = IDLE_TIMEOUT_FILE.with_suffix(".new")
+    temporary_file.write_text(f"{seconds}\n", encoding="utf-8")
+    temporary_file.replace(IDLE_TIMEOUT_FILE)
+
+    if seconds == 0:
+        log.info("Idle timeout disabled for this session")
+    else:
+        log.info("Idle timeout set to %s seconds for this session", seconds)
+
+
+def mark_synthetic_input():
+    try:
+        SYNTHETIC_INPUT_FILE.write_text(f"{time.time()}\n", encoding="utf-8")
+    except OSError as error:
+        log.warning("Could not record synthetic input: %s", error)
+
+
+def refresh_browser():
+    window_id = chromium_window()
+
+    if window_id is None:
+        raise RuntimeError("No visible Chromium window found")
+
+    environment = os.environ.copy()
+    environment["DISPLAY"] = DISPLAY
+    environment["XAUTHORITY"] = XAUTHORITY
+
+    mark_synthetic_input()
+    subprocess.run(
+        [
+            "xdotool",
+            "key",
+            "--window",
+            window_id,
+            "--clearmodifiers",
+            "ctrl+r",
+        ],
+        env=environment,
+        check=True,
+    )
+
+    log.info("Browser refresh triggered")
+
+
+def return_home():
+    try:
+        RUNTIME_URL_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+    home_url = configured_url()
+    open_url(home_url)
+
+    try:
+        RUNTIME_URL_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+    log.info("Configured home URL opened: %s", home_url)
+
+
+
+def connected_output():
+    environment = os.environ.copy()
+    environment["DISPLAY"] = DISPLAY
+    environment["XAUTHORITY"] = XAUTHORITY
+
+    result = subprocess.run(
+        ["xrandr", "--query"],
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.strip() or "Could not query display outputs"
+        )
+
+    for line in result.stdout.splitlines():
+        if " connected" in line:
+            return line.split()[0]
+
+    raise RuntimeError("No connected display output found")
+
+
+def set_blackout(enabled):
+    output = connected_output()
+
+    environment = os.environ.copy()
+    environment["DISPLAY"] = DISPLAY
+    environment["XAUTHORITY"] = XAUTHORITY
+
+    brightness = "0" if enabled else "1"
+
+    result = subprocess.run(
+        [
+            "xrandr",
+            "--output",
+            output,
+            "--brightness",
+            brightness,
+        ],
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.strip() or "Could not change display brightness"
+        )
+
+    state = "enabled" if enabled else "disabled"
+    log.info("Display blackout %s on %s", state, output)
+
+
+def blackout_argument(arguments):
+    if len(arguments) != 1:
+        raise ValueError("/showplaypi/blackout requires one argument")
+
+    value = arguments[0]
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)):
+        if value == 1:
+            return True
+
+        if value == 0:
+            return False
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+
+        if normalized in ("1", "on", "yes", "true"):
+            return True
+
+        if normalized in ("0", "off", "no", "false"):
+            return False
+
+    raise ValueError(
+        "/showplaypi/blackout accepts only 1/0, true/false or on/off"
+    )
+
+def handle_message(address, arguments, source):
+    log.info("Received %s %s from %s:%s", address, arguments, *source)
+
+    if address == "/showplaypi/url":
+        if len(arguments) != 1 or not isinstance(arguments[0], str):
+            raise ValueError("/showplaypi/url requires one string argument")
+
+        open_url(arguments[0])
+
+    elif address == "/showplaypi/idle":
+        set_idle_timeout(arguments)
+
+    elif address == "/showplaypi/refresh":
+        refresh_browser()
+
+    elif address == "/showplaypi/home":
+        return_home()
+
+    elif address == "/showplaypi/restart":
+        if arguments:
+            raise ValueError("/showplaypi/restart does not accept arguments")
+
+        restart_chromium()
+
+    elif address == "/showplaypi/blackout":
+        set_blackout(blackout_argument(arguments))
+
+    else:
+        log.warning("Unknown OSC address: %s", address)
+
+
+def main():
+    if not ini_boolean("OSC", "ENABLED", True):
+        log.info("OSC remote control is disabled in showplaypi.ini")
+        return
+
+    RUNTIME_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+    osc_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    osc_socket.bind((OSC_HOST, OSC_PORT))
+
+    log.info("Listening for OSC messages on UDP port %s", OSC_PORT)
+
+    while True:
+        data, source = osc_socket.recvfrom(65535)
+
+        try:
+            address, arguments = parse_osc_message(data)
+            handle_message(address, arguments, source)
+        except Exception as error:
+            log.error("OSC message rejected: %s", error)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,82 @@
+#!/bin/bash
+
+set -e
+
+CONFIG="/boot/firmware/showplaypi.ini"
+
+if [ "$EUID" -ne 0 ]; then
+    exec sudo "$0" "$@"
+fi
+
+APPLY_NETWORK="no"
+
+case "${1:-}" in
+    "")
+        ;;
+
+    --network)
+        APPLY_NETWORK="yes"
+        ;;
+
+    *)
+        echo "Usage: showplaypi-refresh [--network]"
+        exit 1
+        ;;
+esac
+
+if [ ! -s "$CONFIG" ]; then
+    echo "Error: $CONFIG is missing or empty."
+    exit 1
+fi
+
+echo
+echo "Validating ShowPlayPI configuration..."
+
+if ! /usr/local/sbin/showplaypi-network-config --check; then
+    echo
+    echo "Refresh cancelled because the network configuration is invalid."
+    exit 1
+fi
+
+/usr/local/bin/showplaypi-browser --check
+
+echo
+echo "Applying system configuration..."
+systemctl restart showplaypi-system-config.service
+
+echo "Applying display configuration..."
+if ! runuser -u admin -- env \
+    DISPLAY=:0 \
+    XAUTHORITY=/home/admin/.Xauthority \
+    /usr/local/bin/showplaypi-display; then
+
+    echo "Warning: Display configuration could not be applied."
+fi
+
+echo "Restarting VNC..."
+systemctl restart showplaypi-vnc.service
+
+echo "Restarting OSC control..."
+systemctl restart showplaypi-osc.service
+
+echo "Restarting website watchdog..."
+systemctl restart showplaypi-web-watchdog.service
+
+echo "Restarting Chromium..."
+pkill -TERM -u admin -x chromium 2>/dev/null || true
+
+if [ "$APPLY_NETWORK" = "yes" ]; then
+    echo
+    echo "Applying network configuration."
+    echo "The current SSH connection may now disconnect."
+
+    systemctl restart showplaypi-network-config.service
+else
+    echo
+    echo "Network settings were validated but not activated."
+    echo "Use 'showplaypi-refresh --network' to apply them without rebooting."
+fi
+
+echo
+echo "ShowPlayPI configuration refreshed successfully."
+echo

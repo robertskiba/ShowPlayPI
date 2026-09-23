@@ -1,0 +1,6 @@
+[Unit]
+Description=Ensure ShowPlayPI SSH host keys exist
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A

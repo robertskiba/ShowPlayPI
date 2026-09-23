@@ -1,0 +1,34 @@
+# Images and build output do not belong in Git
+*.img
+*.img.xz
+*.zip
+build/work/
+build/out/
+
+# Windows binaries (built from configurator/*.au3)
+configurator/*.exe
+
+# Never: device-specific secrets
+**/ssh_host_*
+**/.vnc/passwd
+**/authorized_keys
+**/shadow
+**/gshadow
+**/machine-id
+**/.bash_history
+
+# Editor/OS
+Thumbs.db
+.DS_Store
+System Volume Information/
+
+# Build logs
+build/*.log
+
+# Python bytecode (e.g. from local tests)
+__pycache__/
+*.pyc
+
+# Local notes for AI assistants – never published
+CLAUDE.md
+CLAUDE.local.md

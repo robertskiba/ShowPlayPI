@@ -1,0 +1,119 @@
+#!/bin/bash
+
+CONFIG="/boot/firmware/showplaypi.ini"
+TIMESYNCD_CONFIG="/etc/systemd/timesyncd.conf.d/showplaypi.conf"
+
+ini_get() {
+    local section="$1"
+    local key="$2"
+
+    awk -v wanted_section="$section" -v wanted_key="$key" '
+        {
+            sub(/\r$/, "")
+        }
+
+        /^[[:space:]]*[#;]/ {
+            next
+        }
+
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+
+        section == wanted_section {
+            position = index($0, "=")
+
+            if (position == 0) {
+                next
+            }
+
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            if (key == wanted_key) {
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG"
+}
+
+log_message() {
+    logger -t showplaypi-config "$1"
+    echo "$1"
+}
+
+valid_ipv4() {
+    local address="$1"
+    local octet
+    local IFS=.
+
+    read -r -a octets <<< "$address"
+
+    [ "${#octets[@]}" -eq 4 ] || return 1
+
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+        [ "$octet" -ge 0 ] && [ "$octet" -le 255 ] || return 1
+    done
+}
+
+HOSTNAME_VALUE="$(ini_get SYSTEM HOSTNAME)"
+TIMEZONE_VALUE="$(ini_get SYSTEM TIMEZONE)"
+NTP_SERVER_VALUE="$(ini_get SYSTEM NTP_SERVER)"
+
+if [[ "$HOSTNAME_VALUE" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; then
+    if [ "$(hostname)" != "$HOSTNAME_VALUE" ]; then
+        hostnamectl set-hostname "$HOSTNAME_VALUE"
+        log_message "Hostname changed to: $HOSTNAME_VALUE"
+    fi
+
+    if grep -qE '^127\.0\.1\.1([[:space:]]|$)' /etc/hosts; then
+        sed -i -E \
+            "s/^127\.0\.1\.1.*/127.0.1.1	$HOSTNAME_VALUE/" \
+            /etc/hosts
+    else
+        printf '127.0.1.1\t%s\n' "$HOSTNAME_VALUE" >> /etc/hosts
+    fi
+else
+    log_message "Invalid hostname ignored: $HOSTNAME_VALUE"
+fi
+
+
+
+if [[ "$TIMEZONE_VALUE" != *".."* ]] &&
+   [ -f "/usr/share/zoneinfo/$TIMEZONE_VALUE" ]; then
+
+    if [ "$(timedatectl show --property=Timezone --value)" != "$TIMEZONE_VALUE" ]; then
+        timedatectl set-timezone "$TIMEZONE_VALUE"
+        log_message "Timezone changed to: $TIMEZONE_VALUE"
+    fi
+else
+    log_message "Invalid timezone ignored: $TIMEZONE_VALUE"
+fi
+
+if valid_ipv4 "$NTP_SERVER_VALUE"; then
+    mkdir -p "$(dirname "$TIMESYNCD_CONFIG")"
+
+    NEW_NTP_CONFIG="[Time]
+NTP=$NTP_SERVER_VALUE
+FallbackNTP="
+
+    if [ ! -f "$TIMESYNCD_CONFIG" ] ||
+       [ "$(cat "$TIMESYNCD_CONFIG")" != "$NEW_NTP_CONFIG" ]; then
+
+        printf '%s\n' "$NEW_NTP_CONFIG" > "$TIMESYNCD_CONFIG"
+        timedatectl set-ntp true
+        systemctl restart systemd-timesyncd
+        log_message "NTP server changed to: $NTP_SERVER_VALUE"
+    fi
+else
+    log_message "Invalid NTP server ignored: $NTP_SERVER_VALUE"
+fi
