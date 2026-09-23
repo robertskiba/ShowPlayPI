@@ -133,6 +133,26 @@ module needs no manual "reply to" setting.
 - `/showplaypi/unsubscribe [<port>]` – stop feedback.
 - Intended for the Companion module and other controllers; not meant for manual use.
 
+### Discovery via Bonjour/mDNS (release 1.0)
+
+The device announces itself on the network, so controllers such as Companion find it without typing an
+IP address: `_osc._udp` on port 9000 plus a ShowPlayPI service with TXT records (name, version, mode).
+
+### Display control via HDMI-CEC (release 2.0, draft)
+
+Universal commands for the connected display(s): power on / standby, volume up / down, mute,
+input/source selection – with power-state feedback where the display reports it.
+
+### GPIO inputs and outputs (release 2.0, draft)
+
+Inputs (buttons, contact closures) send OSC messages and feedbacks; outputs (relays, lamps) are switched
+via OSC and report their state. Pins and names are configured in `showplaypi.ini`.
+
+### Thumbnail (release 2.0, draft)
+
+On request, a small preview image of the current screen is sent to the requesting subscriber (e.g. for a
+Companion button). Captured only on request, small and rate limited.
+
 ### Further plans
 
 - Status query with a reply to the sender (e.g. current URL, blackout, page reachable) – the basis for

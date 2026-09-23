@@ -61,6 +61,8 @@ Goal: the existing browser function runs reliably on both Pi models and is ready
 - [ ] Verify the build image on Pi 4B and Pi 5 (boot, first-boot resize, SSH, VNC, OSC, watchdog)
 - [ ] **Both HDMI outputs** always carry a signal (at least 1080p60 headless, configurable) and are
       **mirrored**; with different displays a common resolution, if in doubt the configured one or 1080p60
+- [ ] **Screen rotation** for portrait signage and kiosks: `[DISPLAY] ROTATION=0|90|180|270`, also in the
+      configurator; touch input rotated accordingly; applies to both HDMI outputs
 - [ ] Pi 5 specifics: output names, headless resolution, USB gadget over USB-C
 - [ ] Booting without network does not delay the browser (currently waits for `network-online.target`,
       possibly ~60 s)
@@ -85,7 +87,15 @@ Goal: the existing browser function runs reliably on both Pi models and is ready
   - New OSC command `/showplaypi/idle <seconds>` (`0` = off): enables, changes or disables the idle
     timeout for the running session.
 
-**OSC**
+- [ ] **URL allow list** so visitors cannot follow a link out of the kiosk content into the internet:
+      `[BROWSER] ALLOWED_URLS=` (domains/URL patterns, empty = everything allowed), also in the configurator.
+      Implemented through Chromium policies (URL allow/block list); the session start page is always allowed;
+      optionally also disable the context menu (right click / long press).
+
+**OSC and discovery**
+- [ ] **Bonjour/mDNS announcement** so controllers find devices automatically (Companion modules can
+      discover devices via Bonjour): advertise the OSC service (`_osc._udp`, port 9000) and a ShowPlayPI
+      service with TXT records (name, version, mode) via Avahi, which already runs on the device.
 - [x] **UTF-8 URLs with umlauts and other non-ASCII characters** work via OSC and in the INI
       (`showplaypi_url.py`, 32 automated test cases):
   - Decode OSC strings as UTF-8, fall back to Latin-1 for older senders instead of rejecting the command.
@@ -142,6 +152,17 @@ Goal: the internal structure for several modes, without new modes yet. Browser m
 - [ ] First background service: **NTP time server** for the show network. Serves time only while the Pi
       itself is synchronised (the Pi 4 has no real-time clock; the Pi 5 has one, but it needs a backup
       battery) – never hands out a wrong time.
+- [ ] Background service: **HDMI-CEC display control** via OSC – the complete, universal set and nothing
+      more: power on/off (standby), volume up/down, mute, input/source selection; for both HDMI outputs.
+      Feedback of the display's power state where the display reports it. Many trade-fair TVs switch on by
+      themselves – CEC plus OSC adds control from Companion (e.g. all displays off in the evening).
+- [ ] Background service: **GPIO inputs and outputs (GPI/GPO)** via OSC: inputs (buttons, contact
+      closures) send OSC messages and feedbacks to subscribers, outputs (relays, lamps) are switched via
+      OSC and report their state; pins, direction, debounce and names configured in the INI.
+      Check compatibility with the PoE HATs, which cover the GPIO header.
+- [ ] **Thumbnail on request via OSC:** a small preview image of what is currently on screen, sent to the
+      requesting subscriber (e.g. for a Companion button). Only captured on request, small size, rate
+      limited – no permanent load on the device.
 
 **Security options introduced here**
 - [ ] OSC password (`/showplaypi/auth <password>`, then accepted from that IP for a limited time;
