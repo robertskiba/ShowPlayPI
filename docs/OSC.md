@@ -153,6 +153,53 @@ via OSC and report their state. Pins and names are configured in `showplaypi.ini
 On request, a small preview image of the current screen is sent to the requesting subscriber (e.g. for a
 Companion button). Captured only on request, small and rate limited.
 
+### Audio player (release 2.4, draft)
+
+Optional background service with two sources on the media partition: `audio/` holds **jingles** (single
+files on demand), `audio/loop/` the **background playlist** (alphabetical, endless loop). Formats: WAV, MP3,
+FLAC, OGG/Opus, M4A/AAC. Files are addressed by file name (`s`) or by number (`i`, 1-based, as in `list`).
+
+| Command | Arguments | Effect |
+|---|---|---|
+| `/showplaypi/audio/loop/play` | – | start or resume the playlist |
+| `/showplaypi/audio/loop/pause` | – | pause the playlist |
+| `/showplaypi/audio/loop/stop` | – | stop the playlist (next play starts at the beginning) |
+| `/showplaypi/audio/loop/next` / `previous` | – | skip within the playlist |
+| `/showplaypi/audio/loop/select` | file name or number | play this playlist entry |
+| `/showplaypi/audio/loop/repeat` | `off` \| `all` \| `one` | repeat mode |
+| `/showplaypi/audio/loop/shuffle` | `0` \| `1` | shuffle off/on |
+| `/showplaypi/audio/loop/volume` | `0`–`100` | playlist volume |
+| `/showplaypi/audio/jingle/play` | file name or number | play a jingle once |
+| `/showplaypi/audio/jingle/stop` | – | stop the current jingle |
+| `/showplaypi/audio/jingle/volume` | `0`–`100` | jingle volume |
+| `/showplaypi/audio/volume` | `0`–`100` | master volume |
+| `/showplaypi/audio/mute` | `0` \| `1` | master mute |
+| `/showplaypi/audio/list` | – | reply with the file lists as JSON (below) |
+| `/showplaypi/audio/status` | – | reply with the player state as JSON |
+
+While a jingle plays, the playlist is ducked, paused or keeps playing according to `[AUDIO] JINGLE_MODE`.
+
+Reply to `/showplaypi/audio/list` (sent to the requesting subscriber as an OSC string argument), e.g.:
+
+```json
+{
+  "jingles": [
+    {"number": 1, "file": "01_Opening.wav", "title": "01_Opening", "duration": 8.4},
+    {"number": 2, "file": "02_Applause.mp3", "title": "02_Applause", "duration": 12.0}
+  ],
+  "loop": [
+    {"number": 1, "file": "Lounge 01.mp3", "title": "Lounge 01", "duration": 214.5}
+  ]
+}
+```
+
+Reply to `/showplaypi/audio/status`, e.g.:
+`{"loop": {"state": "playing", "number": 1, "file": "Lounge 01.mp3", "position": 83.2, "remaining": 131.3,
+"volume": 60, "repeat": "all", "shuffle": false}, "jingle": {"state": "stopped"}, "volume": 80, "mute": false}`
+
+Lists larger than one UDP packet (~64 KB) are split into several messages. With a subscription, changes of
+the current track, jingle start/stop and the remaining time are sent as feedbacks automatically.
+
 ### Further plans
 
 - Status query with a reply to the sender (e.g. current URL, blackout, page reachable) – the basis for

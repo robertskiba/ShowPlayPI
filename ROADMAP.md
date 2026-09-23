@@ -39,7 +39,7 @@ More modes should be easy to add later.
 | **2.1** | Video & stills mode + web interface (configuration and media upload) | 2.0 |
 | **2.2** | Ontime mode | 2.0 |
 | **2.3** | Companion mode | 2.0 |
-| **2.4** | Audio loop (background service) | 2.0 |
+| **2.4** | Audio player: background playlist and jingles (optional service) | 2.0 |
 | **3.0** | Companion module, distribution | 2.1–2.4 |
 
 ---
@@ -220,13 +220,31 @@ to another subfolder.
 - [ ] Optional lightweight browser (e.g. WPE/cog) for the local emulator page with touch, mouse and keyboard
 - [ ] Security: Companion's own admin password exposed in the INI
 
-## 2.4 – Audio loop (background service)
-- [ ] Plays an audio folder of the media partition in a loop (background music, announcements at a booth),
-      e.g. together with the browser mode – not together with the video mode (audio conflict)
+## 2.4 – Audio player: background playlist and jingles (optional background service)
+- [ ] Optional background service (`[AUDIO] ENABLED=yes|no`), runs e.g. together with the browser mode –
+      not together with the video mode (audio conflict)
+- [ ] **Folders on the media partition:**
+  - `audio/` – **jingles**: single files played on demand (e.g. from a Companion button)
+  - `audio/loop/` – **background playlist**: played alphabetically in an endless loop
+- [ ] **Formats:** WAV, MP3, FLAC, OGG/Opus, M4A/AAC (all played by mpv)
+- [ ] **Jingle over playlist:** while a jingle plays, the playlist is ducked, paused or keeps playing
+      (`JINGLE_MODE=duck|pause|mix`, `DUCK_LEVEL`), and continues automatically afterwards
+- [ ] INI settings: output (`OUTPUT=auto|hdmi|analog|usb`), start volumes, playlist autostart, shuffle,
+      repeat, jingle mode; also in the configurator
 - [ ] Outputs: HDMI audio (Pi 4B and Pi 5), 3.5 mm jack (Pi 4B only – the Pi 5 has none), class-compliant
       USB audio adapters (analog output on the Pi 5). DAC HATs are not supported (they conflict with the
       recommended PoE HAT).
-- [ ] OSC: play/stop, next, volume, playlist (subfolder) for the session
+- [ ] **OSC** (session-only, see `docs/OSC.md`):
+  - Playlist: play, pause, stop, next, previous, select (file name or number), repeat off/all/one,
+    shuffle, volume
+  - Jingles: play (file name or number), stop, volume
+  - Master volume and mute
+  - `list` returns **both file lists as JSON** (number, file name, title, duration) – ready for a
+    dropdown in Companion; `status` returns JSON (what is playing, position, remaining time, volumes)
+  - Feedbacks via the subscription: current track, jingle playing, remaining time (e.g. countdown on a
+    Companion button)
+  - File lists larger than one UDP packet (~64 KB, several hundred files) are split into several messages
+- [ ] Upload and manage audio files in the web interface (together with the media upload, release 2.1)
 
 ## 3.0 – Companion module and distribution
 - [ ] Companion module built against `docs/OSC.md` (actions and feedbacks for all modes)
