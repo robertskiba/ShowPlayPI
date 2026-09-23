@@ -63,8 +63,10 @@ CONFIG_URL="$(
     ' "$CONFIG"
 )"
 
-if validate_url "$CONFIG_URL"; then
-    printf '%s\n' "$CONFIG_URL"
+# ASCII form of the URL (umlauts in host or path, spaces, Windows character set from the configurator)
+if [ -n "$CONFIG_URL" ] &&
+   NORMALIZED_URL="$(/usr/local/bin/showplaypi-normalize-url "$CONFIG_URL" 2>/dev/null)"; then
+    printf '%s\n' "$NORMALIZED_URL"
 else
     printf '%s\n' "$DEFAULT_URL"
 fi

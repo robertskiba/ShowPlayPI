@@ -86,7 +86,8 @@ Goal: the existing browser function runs reliably on both Pi models and is ready
     timeout for the running session.
 
 **OSC**
-- [ ] **UTF-8 URLs with umlauts and other non-ASCII characters** must work via OSC (and in the INI):
+- [x] **UTF-8 URLs with umlauts and other non-ASCII characters** work via OSC and in the INI
+      (`showplaypi_url.py`, 32 automated test cases):
   - Decode OSC strings as UTF-8, fall back to Latin-1 for older senders instead of rejecting the command.
   - Normalise every URL before it is stored or used: host name to IDNA/punycode
     (`müller.de` → `xn--mller-kva.de`), non-ASCII characters in path and query percent-encoded

@@ -38,8 +38,11 @@ Shows a URL and makes it the **start page of the current session**. Chromium is 
 
 | Argument | Type | Description |
 |---|---|---|
-| url | `s` | must start with `http://`, `https://` or `file://` |
+| url | `s` | must start with `http://`, `https://` or `file://`; may contain umlauts and other non-ASCII characters |
 
+- URLs are converted to their ASCII form before use: international host names to IDNA ("punycode",
+  `müller.de` → `xn--mller-kva.de`), non-ASCII characters and spaces in path and query percent-encoded.
+  Already encoded URLs stay unchanged. Strings should be UTF-8 (OSC 1.0); Latin-1 is accepted as well.
 - The page survives Chromium restarts, watchdog reloads and `/showplaypi/restart`.
 - The idle timeout returns to this page.
 - It is lost when the **Pi reboots**; afterwards the start page from `showplaypi.ini` is shown again.

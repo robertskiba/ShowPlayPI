@@ -148,6 +148,9 @@ URL=http://192.168.1.100
         https://
         file://
 
+    Addresses may contain umlauts and other special characters, for example
+    http://müller.de/über – ShowPlayPI converts them automatically.
+
 
 IGNORE_CERTIFICATE_ERRORS=yes
 

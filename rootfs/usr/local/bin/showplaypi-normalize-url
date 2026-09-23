@@ -1,0 +1,23 @@
+#!/usr/bin/python3
+"""Print the ASCII form of a URL (see showplaypi_url.py). Exit code 1 if the URL is not valid.
+
+Usage: showplaypi-normalize-url <url>
+The argument may be UTF-8 or Latin-1/Windows-1252 (the Windows configurator writes the INI file in the
+Windows character set).
+"""
+
+import os
+import sys
+
+sys.path.insert(0, "/usr/local/lib/showplaypi")
+from showplaypi_url import decode_text, normalize_url  # noqa: E402
+
+if len(sys.argv) != 2:
+    print("Usage: showplaypi-normalize-url <url>", file=sys.stderr)
+    raise SystemExit(2)
+
+try:
+    print(normalize_url(decode_text(os.fsencode(sys.argv[1]))))
+except ValueError as error:
+    print(error, file=sys.stderr)
+    raise SystemExit(1)

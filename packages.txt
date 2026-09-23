@@ -19,6 +19,10 @@ fonts-dejavu-core
 x11vnc
 xdotool
 
+# --- Python libraries used by the ShowPlayPI services ---
+# IDNA 2008 host names like Chromium (showplaypi_url.py)
+python3-idna
+
 # --- Idle timeout (showplaypi-idle reads the X idle time via libXss) ---
 libxss1
 

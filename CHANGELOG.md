@@ -6,6 +6,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- URLs with umlauts and other non-ASCII characters work everywhere (OSC, `showplaypi.ini`, configurator):
+  they are converted to their ASCII form (international host names like Chromium, percent-encoded path
+  and query), so browser, watchdog and idle timeout always agree on the address.
+- OSC strings are decoded as UTF-8 with a Latin-1 fallback for older senders.
+
+### Changed
+- Website and support contact: https://konftools.com · support@konftools.com.
+
 ## [1.0.0-beta.1] – 2026-09-24
 
 First beta of ShowPlayPI.

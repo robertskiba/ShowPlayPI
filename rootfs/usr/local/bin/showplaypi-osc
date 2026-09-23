@@ -5,8 +5,12 @@ import os
 import socket
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/showplaypi")
+from showplaypi_url import decode_text, normalize_url  # noqa: E402
 
 OSC_HOST = "0.0.0.0"
 OSC_PORT = 9000
@@ -75,7 +79,8 @@ def read_osc_string(data, offset):
     if end < 0:
         raise ValueError("OSC string is not terminated")
 
-    value = data[offset:end].decode("utf-8")
+    # UTF-8 as required by OSC 1.0; older senders may use Latin-1 (e.g. URLs with umlauts)
+    value = decode_text(data[offset:end])
     offset = (end + 4) & ~3
     return value, offset
 
@@ -204,8 +209,8 @@ def restart_chromium():
 
 
 def open_url(url):
-    if not valid_url(url):
-        raise ValueError("URL must begin with http://, https:// or file://")
+    # ASCII form (IDNA host, percent-encoded path) so Chromium, watchdog and idle service agree
+    url = normalize_url(url)
 
     RUNTIME_DIRECTORY.mkdir(parents=True, exist_ok=True)
 

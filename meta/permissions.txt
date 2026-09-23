@@ -50,3 +50,5 @@
 755 root root /usr/local/bin/showplaypi-idle
 644 root root /etc/systemd/system/showplaypi-idle.service
 644 root root /etc/tmpfiles.d/showplaypi.conf
+644 root root /usr/local/lib/showplaypi/showplaypi_url.py
+755 root root /usr/local/bin/showplaypi-normalize-url
