@@ -58,8 +58,9 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
 ## What you need
 
 - **Raspberry Pi 5 or Raspberry Pi 4 Model B** (the Pi 5 is the main platform; the Pi 4 is still being tested
-  in the beta). Companion mode needs a Pi with at least 1 GB RAM; more is recommended for large Companion
-  setups.
+  in the beta). For the Companion mode the RAM decides how many connections are possible – every Companion
+  connection is a program of its own (about 25–35 MB each): **1 GB** only for small setups (up to about 5
+  connections), **2 GB** for typical events, **4 GB** recommended for large setups.
 - A microSD card, **16 GB or larger**
 - A suitable power supply (Pi 5: 27 W USB-C, Pi 4: 15 W USB-C) – **or Power over Ethernet**: the official
   PoE HATs work on both models, **PoE+ is recommended** (a single network cable for power and data)
@@ -294,8 +295,8 @@ In this beta:
   are planned for 1.0.
 - The video, Companion and Ontime modes and the audio player are first versions: crossfades between videos
   fade through black for now, and everything is tested on the Pi 5 so far, not yet on the Pi 4.
-- Companion and a browser together use most of the memory of a 1 GB Pi 5; very large Companion
-  configurations may need a Pi with more RAM.
+- Companion on a 1 GB Pi: with about 15 connections the memory is nearly used up, with 30 connections the
+  device stalls. Use a Pi with 2 or 4 GB for larger Companion setups.
 - Without a network connection the picture may take up to about a minute longer to appear.
 - Configuration via USB-C depends on the power the computer's USB port delivers; the Pi 5 needs a USB-C
   or USB 3 port.

@@ -106,7 +106,7 @@ The blackout persists across `/showplaypi/browser/url`, `/showplaypi/browser/ref
 In **video mode** the player fades its own picture: `/showplaypi/blackout <state> [fade]`, `fade` in
 milliseconds (default: `[VIDEO] FADE`).
 
-**Planned (release 2.0):** the blackout always fades – `/showplaypi/blackout <state> [fade]`, `fade` in
+**Planned (release 1.1):** the blackout always fades – `/showplaypi/blackout <state> [fade]`, `fade` in
 milliseconds for this command; the default comes from `showplaypi.ini` (e.g. `[DISPLAY] BLACKOUT_FADE=500`,
 `0` = hard cut). Today the picture switches immediately.
 
@@ -147,7 +147,7 @@ socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(message, ("showplaypi-e8
 
 ## Planned (see ROADMAP.md)
 
-### Feedback subscription (draft)
+### Feedback subscription (release 1.2, draft)
 
 Clients register themselves for status feedback, so the return path configures itself – the Companion
 module needs no manual "reply to" setting.
@@ -175,7 +175,7 @@ module needs no manual "reply to" setting.
 - `/showplaypi/unsubscribe [<port>]` – stop feedback.
 - Intended for the Companion module and other controllers; not meant for manual use.
 
-### Commands for every mode (draft)
+### Commands for every mode (release 1.2, draft)
 
 | Command | Arguments | Effect |
 |---|---|---|
@@ -198,7 +198,7 @@ CPU load in percent (total and per core, averaged over the last second), RAM and
 temperature in °C, `throttled` from the firmware (under-voltage, throttling now or since the start), uptime
 in milliseconds.
 
-### File lists (draft)
+### File lists (release 1.2, draft)
 
 Video player, jingles and audio playlists report their files as a **JSON array**, e.g. for dropdowns in the
 Companion module:
@@ -212,22 +212,22 @@ Companion module:
 - lists larger than one UDP packet (~64 KB, several hundred files) are split into several messages
   (`part` and `parts` in the JSON)
 
-### Discovery via Bonjour/mDNS (release 1.0)
+### Discovery via Bonjour/mDNS (release 1.1)
 
 The device announces itself on the network, so controllers such as Companion find it without typing an
 IP address: `_osc._udp` on port 23878 plus a ShowPlayPI service with TXT records (name, version, mode).
 
-### Display control via HDMI-CEC (release 2.0, draft)
+### Display control via HDMI-CEC (release 2.2, draft)
 
 Universal commands for the connected display(s): power on / standby, volume up / down, mute,
 input/source selection – with power-state feedback where the display reports it.
 
-### GPIO inputs and outputs (release 2.0, draft)
+### GPIO inputs and outputs (release 2.2, draft)
 
 Inputs (buttons, contact closures) send OSC messages and feedbacks; outputs (relays, lamps) are switched
 via OSC and report their state. Pins and names are configured in `showplaypi.ini`.
 
-### Thumbnail (release 2.0, draft)
+### Thumbnail (release 2.2, draft)
 
 On request, a small preview image of the current screen is sent to the requesting subscriber (e.g. for a
 Companion button). Captured only on request, small and rate limited.
