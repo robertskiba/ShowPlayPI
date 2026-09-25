@@ -1,0 +1,390 @@
+#!/bin/bash
+# The media partition: the exFAT drive "SHOWPLAYPI" with the configuration, the Windows configurator and the
+# folders for local web pages, videos and audio files. It is the drive users work with – on the SD card,
+# over USB-C and later over the network.
+#
+#   showplaypi-media setup     at every start (showplaypi-media.service), before the configuration is applied:
+#                              creates the partition on the first start, mounts it, restores missing files
+#                              and reconciles the copies of showplaypi.ini
+#   showplaypi-media release   unmounts the partition so that a computer can use it (showplaypi-usb-drive)
+#   showplaypi-media attach    mounts it again when the computer is done
+#   showplaypi-media device    prints the device of the media partition
+#   showplaypi-media restart-request   restarts if the configurator asked for it ("Save and Restart")
+#
+# Partition layout (MBR): 1 boot (FAT, 512 MB) · 2 Linux (ext4) · 3 media (exFAT, rest of the card).
+# On the first start the Linux partition grows to 12 GiB – on small cards less, so that the media partition
+# gets at least 3 GiB, but never below 10.5 GiB.
+#
+# showplaypi.ini exists three times:
+#   /etc/showplaypi/showplaypi.ini   active configuration, read by all ShowPlayPI services (never visible)
+#   /boot/firmware/showplaypi.ini    for editing right after flashing (card reader)
+#   <media partition>/showplaypi.ini for editing over USB, the network or the card reader
+# At every start the copy that was changed since the last start wins (the media partition if both were
+# changed) and is copied to the others. Deleting showplaypi.ini from the media partition restores the
+# delivery state.
+
+set -u
+
+MEDIA_DIR="/media/showplaypi"
+MEDIA_LABEL="SHOWPLAYPI"
+MEDIA_PARTITION=3
+ROOT_PARTITION=2
+DEFAULTS_DIR="/usr/share/showplaypi/usb"
+HTML_EXAMPLE_DIR="/usr/share/showplaypi/html-example"
+HTML_FOLDER="HTML"
+# HTML: local web pages · VIDEO: clip player · AUDIO (+ LOOP): jingle and background player · PRESETS: e.g. Companion
+FOLDERS=("$HTML_FOLDER" VIDEO AUDIO AUDIO/LOOP PRESETS)
+OLD_CONTENT_DIR="/boot/firmware/content"
+OLD_USB_STATE_DIR="/var/lib/showplaypi-usb"
+SHARE_PAUSED_FILE="/run/showplaypi/network-share-paused"
+# Written by the configurator ("Save and Restart"); showplaypi-restart.path watches it
+RESTART_REQUEST="$MEDIA_DIR/.restart-request"
+
+ACTIVE_CONFIG="/etc/showplaypi/showplaypi.ini"
+BOOT_CONFIG="/boot/firmware/showplaypi.ini"
+MEDIA_CONFIG="$MEDIA_DIR/showplaypi.ini"
+DEFAULT_CONFIG="/usr/share/showplaypi/showplaypi.ini.default"
+CONFIG_STATE="/var/lib/showplaypi/config.sha256"
+# Set when the media partition was created and not formatted yet (survives a power loss in between)
+FORMAT_PENDING="/var/lib/showplaypi/media-format-pending"
+RELEASE_FILE="/etc/showplaypi-release"
+
+# Sizes in 512-byte sectors
+GIB=2097152
+ALIGNMENT=8192
+ROOT_TARGET=$((12 * GIB))
+ROOT_MINIMUM=$((21 * GIB / 2))
+MEDIA_TARGET=$((3 * GIB))
+MEDIA_MINIMUM=$((GIB / 4))
+
+# Set when the media partition got a new, empty file system during this run
+FRESH_MEDIA="no"
+
+log_message() {
+    logger -t showplaypi-media "$1"
+    echo "$1"
+}
+
+root_disk() {
+    lsblk -no pkname "$(findmnt -no SOURCE /)"
+}
+
+# mmcblk0 + 3 -> mmcblk0p3, sda + 3 -> sda3
+partition_name() {
+    if [[ $1 =~ [0-9]$ ]]; then
+        echo "${1}p$2"
+    else
+        echo "$1$2"
+    fi
+}
+
+media_device() {
+    local disk
+    disk="$(root_disk)" || return 1
+    [ -e "/sys/block/$disk/$(partition_name "$disk" "$MEDIA_PARTITION")" ] || return 1
+    echo "/dev/$(partition_name "$disk" "$MEDIA_PARTITION")"
+}
+
+# First start: enlarge the Linux partition and create the media partition behind it
+create_media_partition() {
+    local disk="$1"
+    local root_name
+    local disk_size
+    local root_start
+    local root_size
+    local root_new
+    local media_start
+
+    root_name="$(partition_name "$disk" "$ROOT_PARTITION")"
+    [ -e "/sys/block/$disk/$root_name" ] || { log_message "Unexpected partition layout – no media partition created."; return 1; }
+
+    disk_size="$(cat "/sys/block/$disk/size")"
+    root_start="$(cat "/sys/block/$disk/$root_name/start")"
+    root_size="$(cat "/sys/block/$disk/$root_name/size")"
+
+    root_new=$((disk_size - root_start - MEDIA_TARGET))
+    (( root_new > ROOT_TARGET )) && root_new=$ROOT_TARGET
+    (( root_new < ROOT_MINIMUM )) && root_new=$ROOT_MINIMUM
+    (( root_new < root_size )) && root_new=$root_size
+
+    media_start=$(( (root_start + root_new + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT ))
+    root_new=$((media_start - root_start))
+
+    if (( disk_size - media_start < MEDIA_MINIMUM )); then
+        # Card too small for a media partition: the Linux partition takes all the space
+        root_new=$((disk_size - root_start))
+        media_start=""
+    fi
+
+    if (( root_new > root_size )); then
+        echo "start=$root_start, size=$root_new" |
+            sfdisk --quiet --no-reread --no-tell-kernel -N "$ROOT_PARTITION" "/dev/$disk" || return 1
+        # Tell the running kernel the new size (works while the partition is mounted)
+        partx --update --nr "$ROOT_PARTITION" "/dev/$disk" || return 1
+        log_message "Linux partition enlarged to $((root_new / 2048)) MiB."
+    fi
+    # Also completes an enlargement that was interrupted after the partition table was written
+    resize2fs "/dev/$root_name" >/dev/null 2>&1 || return 1
+
+    if [ -z "$media_start" ]; then
+        log_message "The SD card is too small for a media partition; the configuration stays on the boot partition."
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$FORMAT_PENDING")"
+    touch "$FORMAT_PENDING" && sync -f "$FORMAT_PENDING"
+    # Type 7 = exFAT/NTFS, the rest of the card
+    echo "start=$media_start, type=7" |
+        sfdisk --quiet --no-reread --no-tell-kernel -N "$MEDIA_PARTITION" "/dev/$disk" || return 1
+    partx --add --nr "$MEDIA_PARTITION" "/dev/$disk" 2>/dev/null ||
+        partx --update --nr "$MEDIA_PARTITION" "/dev/$disk" || return 1
+    udevadm settle
+    log_message "Media partition created: $(( (disk_size - media_start) / 2048 )) MiB."
+}
+
+mount_media() {
+    local device="$1"
+    local type
+
+    mountpoint -q "$MEDIA_DIR" && return 0
+    mkdir -p "$MEDIA_DIR"
+
+    type="$(blkid -o value -s TYPE "$device" 2>/dev/null)"
+    # A newly created partition is always formatted: after re-flashing a card, the file system of an earlier
+    # media partition (with the files of a previous user) may still lie at exactly the same place
+    [ -e "$FORMAT_PENDING" ] && type=""
+
+    case "$type" in
+        exfat)
+            # Repairs minor errors after the card was removed or unplugged without ejecting
+            fsck.exfat -y "$device" >/dev/null 2>&1
+            ;;
+        vfat)
+            # Reformatted as FAT32 on a computer – still usable
+            fsck.vfat -a "$device" >/dev/null 2>&1
+            ;;
+        "")
+            wipefs --all --quiet "$device" 2>/dev/null
+            mkfs.exfat -L "$MEDIA_LABEL" "$device" >/dev/null || return 1
+            rm -f "$FORMAT_PENDING"
+            type="exfat"
+            FRESH_MEDIA="yes"
+            log_message "Media partition formatted (exFAT, $MEDIA_LABEL)."
+            ;;
+        *)
+            # E.g. reformatted as NTFS – may hold data, never touched
+            log_message "The media partition has a foreign file system ($type) and is left untouched."
+            return 1
+            ;;
+    esac
+
+    # Owned by admin (the kiosk user); files 644, folders 755
+    mount -t "$type" -o noatime,uid=1000,gid=1000,fmask=0133,dmask=0022 "$device" "$MEDIA_DIR"
+}
+
+write_file() {
+    local source="$1"
+    local target="$2"
+
+    cp "$source" "$target.tmp" || return 1
+    sync "$target.tmp"
+    mv "$target.tmp" "$target" || return 1
+    sync -f "$target"
+}
+
+write_version_file() {
+    local target_dir="$1"
+    local version="unknown"
+    local build_date="unknown"
+
+    if [ -r "$RELEASE_FILE" ]; then
+        # shellcheck disable=SC1090
+        . "$RELEASE_FILE"
+        version="${SHOWPLAYPI_VERSION:-unknown}"
+        build_date="${SHOWPLAYPI_BUILD_DATE:-${SHOWPLAYPI_RELEASE_DATE:-unknown}}"
+    fi
+
+    printf 'ShowPlayPI Version: %s\nBuild Date: %s\n' "$version" "$build_date" > "$target_dir/.version.txt.tmp" &&
+        mv "$target_dir/.version.txt.tmp" "$target_dir/version.txt"
+}
+
+# Self-healing: folders, configurator, README and presets are always present and unchanged
+restore_media_files() {
+    local folder
+    local file
+    local target
+
+    for folder in "${FOLDERS[@]}"; do
+        mkdir -p "$MEDIA_DIR/$folder"
+    done
+
+    while IFS= read -r -d '' file; do
+        target="$MEDIA_DIR/${file#"$DEFAULTS_DIR"/}"
+        if ! cmp -s "$file" "$target"; then
+            mkdir -p "$(dirname "$target")"
+            write_file "$file" "$target" && log_message "Restored on the media partition: ${file#"$DEFAULTS_DIR"/}"
+        fi
+    done < <(find "$DEFAULTS_DIR" -type f -print0)
+
+    # Local web pages of earlier versions (content/ on the boot partition) move to HTML/
+    if [ -d "$OLD_CONTENT_DIR" ]; then
+        if cp -rn "$OLD_CONTENT_DIR"/. "$MEDIA_DIR/$HTML_FOLDER/"; then
+            rm -rf "$OLD_CONTENT_DIR"
+            log_message "Local web pages moved from the boot partition to $HTML_FOLDER on the media partition."
+        fi
+    elif [ "$FRESH_MEDIA" = "yes" ] && [ -d "$HTML_EXAMPLE_DIR" ]; then
+        cp -rn "$HTML_EXAMPLE_DIR"/. "$MEDIA_DIR/$HTML_FOLDER/"
+    fi
+
+    write_version_file "$MEDIA_DIR"
+    sync -f "$MEDIA_DIR"
+}
+
+file_hash() {
+    sha256sum < "$1" | cut -d' ' -f1
+}
+
+valid_config() {
+    [ -s "$1" ] && grep -q '^HOSTNAME=' "$1" && grep -q '^URL=' "$1"
+}
+
+# Changed since the last start and usable
+changed_config() {
+    local file="$1"
+    local last="$2"
+
+    [ -e "$file" ] || return 1
+    [ "$(file_hash "$file")" != "$last" ] || return 1
+    if ! valid_config "$file"; then
+        log_message "$file is incomplete and was ignored; the previous configuration stays active."
+        return 1
+    fi
+}
+
+reconcile_config() {
+    local media_available="$1"
+    local last=""
+    local winner
+    local message=""
+    local copy
+
+    mkdir -p "$(dirname "$ACTIVE_CONFIG")" "$(dirname "$CONFIG_STATE")"
+    [ -s "$CONFIG_STATE" ] && last="$(cat "$CONFIG_STATE")"
+
+    if [ "$media_available" = "yes" ] && [ "$FRESH_MEDIA" = "no" ] &&
+       [ ! -e "$MEDIA_CONFIG" ] && [ -s "$ACTIVE_CONFIG" ]; then
+        winner="$DEFAULT_CONFIG"
+        message="showplaypi.ini was deleted from the $MEDIA_LABEL drive – configuration reset to the delivery state."
+    elif [ "$media_available" = "yes" ] && changed_config "$MEDIA_CONFIG" "$last"; then
+        winner="$MEDIA_CONFIG"
+        message="Configuration changed on the $MEDIA_LABEL drive – applied."
+    elif changed_config "$BOOT_CONFIG" "$last"; then
+        winner="$BOOT_CONFIG"
+        message="Configuration changed on the boot partition – applied."
+    elif [ -s "$ACTIVE_CONFIG" ]; then
+        winner="$ACTIVE_CONFIG"
+    elif valid_config "$BOOT_CONFIG"; then
+        winner="$BOOT_CONFIG"
+    else
+        winner="$DEFAULT_CONFIG"
+        message="No valid configuration found – delivery state used."
+    fi
+
+    # Work on a copy: the winner is also one of the targets
+    copy="$(mktemp)"
+    cp "$winner" "$copy" || { rm -f "$copy"; return 1; }
+
+    cmp -s "$copy" "$ACTIVE_CONFIG" || { write_file "$copy" "$ACTIVE_CONFIG" && chmod 644 "$ACTIVE_CONFIG"; }
+    cmp -s "$copy" "$BOOT_CONFIG" || write_file "$copy" "$BOOT_CONFIG"
+    if [ "$media_available" = "yes" ]; then
+        cmp -s "$copy" "$MEDIA_CONFIG" || write_file "$copy" "$MEDIA_CONFIG"
+    fi
+
+    file_hash "$copy" > "$CONFIG_STATE.tmp" && mv "$CONFIG_STATE.tmp" "$CONFIG_STATE"
+    rm -f "$copy"
+    [ -n "$message" ] && log_message "$message"
+    return 0
+}
+
+setup() {
+    local disk
+    local device
+    local media_available="no"
+
+    disk="$(root_disk)"
+    device="$(media_device)"
+
+    if [ -z "$device" ]; then
+        create_media_partition "$disk" && device="$(media_device)"
+    fi
+
+    if [ -n "$device" ] && mount_media "$device"; then
+        media_available="yes"
+        restore_media_files
+    fi
+
+    # A restart request from the configurator is fulfilled by this start
+    rm -f "$RESTART_REQUEST"
+
+    reconcile_config "$media_available"
+    write_version_file "/boot/firmware"
+
+    # Leftovers of the former virtual USB drive (an image file on the Linux partition)
+    [ -d "$OLD_USB_STATE_DIR" ] && rm -rf "$OLD_USB_STATE_DIR"
+    return 0
+}
+
+restart_request() {
+    [ -e "$RESTART_REQUEST" ] || return 0
+    rm -f "$RESTART_REQUEST"
+    sync -f "$MEDIA_DIR"
+    log_message "Restart requested with the configurator – restarting to apply the configuration."
+    # Lets the computer finish writing and close the file
+    sleep 2
+    systemctl reboot --no-block
+}
+
+release() {
+    mountpoint -q "$MEDIA_DIR" || return 0
+
+    # The network share pauses while a computer uses the drive over USB-C
+    if systemctl is-active --quiet smbd.service; then
+        systemctl stop smbd.service
+        touch "$SHARE_PAUSED_FILE"
+    fi
+
+    sync -f "$MEDIA_DIR"
+    umount "$MEDIA_DIR"
+}
+
+attach() {
+    local device
+
+    device="$(media_device)" || return 1
+    mount_media "$device" && restore_media_files || return 1
+
+    if [ -e "$SHARE_PAUSED_FILE" ]; then
+        rm -f "$SHARE_PAUSED_FILE"
+        systemctl start --no-block smbd.service
+    fi
+
+    # "Save and Restart" over USB-C: the request is found once the computer ejected the drive.
+    # Otherwise watch the newly mounted file system again (the watch belonged to the previous mount).
+    if [ -e "$RESTART_REQUEST" ]; then
+        restart_request
+    else
+        systemctl try-restart showplaypi-restart.path
+    fi
+}
+
+case "${1:-}" in
+    setup) setup ;;
+    release) release ;;
+    attach) attach ;;
+    device) media_device ;;
+    restart-request) restart_request ;;
+    *)
+        echo "Usage: $0 setup|release|attach|device|restart-request" >&2
+        exit 2
+        ;;
+esac

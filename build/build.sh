@@ -2,7 +2,7 @@
 # Builds a ShowPlayPI image from the official Raspberry Pi OS Lite and this repository.
 # Runs as root under WSL2 (Ubuntu) or Linux. On Windows simply use build.cmd.
 #
-# Output: build/out/ShowPlayPI-<version>[-<git>].img.xz (+ .sha256)
+# Output: build/out/ShowPlayPI-<version>[-<git>].img.xz (+ .sha256, .packages.txt, .rpi-imager.json)
 #
 # Environment variables:
 #   SHOWPLAYPI_WORK=/path   working directory (default /var/tmp/showplaypi-build, needs ~10 GB)
@@ -40,17 +40,19 @@ mkdir -p "$SRC/build"
 cp -r "$REPO/rootfs" "$REPO/bootfs" "$REPO/meta" "$REPO/scripts" \
       "$REPO/packages.txt" "$REPO/services.txt" "$SRC/"
 cp "$REPO/build/config.env" "$REPO/build/chroot-setup.sh" "$SRC/build/"
+# The template of showplaypi.ini is also the delivery state used by the factory reset
+install -D -m 644 "$REPO/bootfs/showplaypi.ini" "$SRC/rootfs/usr/share/showplaypi/showplaypi.ini.default"
 
 # --- Tools -------------------------------------------------------------------
 missing=()
-for tool in curl xz parted losetup resize2fs e2fsck zerofree; do
+for tool in curl xz parted losetup resize2fs e2fsck zerofree skopeo; do
     command -v "$tool" >/dev/null || missing+=("$tool")
 done
 [[ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]] || missing+=(qemu-aarch64)
 if [[ ${#missing[@]} -gt 0 ]]; then
     log "Installing missing tools: ${missing[*]}"
     apt-get update -qq
-    apt-get install -y -qq curl xz-utils parted e2fsprogs util-linux zerofree
+    apt-get install -y -qq curl xz-utils parted e2fsprogs util-linux zerofree skopeo
     # Since Ubuntu 26.04 the static ARM64 emulation is called qemu-user + qemu-user-binfmt
     if apt-cache show qemu-user-binfmt >/dev/null 2>&1; then
         apt-get install -y -qq qemu-user qemu-user-binfmt
@@ -86,6 +88,25 @@ if [[ ! -f $BASE ]]; then
 fi
 log "Verifying base image checksum"
 echo "$BASE_IMAGE_SHA256  $BASE" | sha256sum -c --quiet || die "Checksum mismatch – delete $BASE and start again"
+
+# Companion (native) and Ontime (container image) for the Companion and Ontime modes – cached like the base image
+COMPANION_PACKAGE=$CACHE/$(basename "$COMPANION_URL")
+if [[ ! -f $COMPANION_PACKAGE ]]; then
+    log "Downloading Companion $(basename "$COMPANION_PACKAGE")"
+    curl -fL --progress-bar -o "$COMPANION_PACKAGE.part" "$COMPANION_URL"
+    mv "$COMPANION_PACKAGE.part" "$COMPANION_PACKAGE"
+fi
+echo "$COMPANION_SHA256  $COMPANION_PACKAGE" | sha256sum -c --quiet \
+    || die "Companion checksum mismatch – delete $COMPANION_PACKAGE and start again"
+
+ONTIME_CACHE=$CACHE/ontime-$(basename "${ONTIME_IMAGE##*:}").tar
+if [[ ! -f $ONTIME_CACHE ]]; then
+    log "Downloading Ontime container image $ONTIME_IMAGE (ARM64)"
+    rm -f "$ONTIME_CACHE.part"
+    skopeo --override-os linux --override-arch arm64 copy --quiet \
+        "docker://$ONTIME_IMAGE" "docker-archive:$ONTIME_CACHE.part:$ONTIME_IMAGE_TAG"
+    mv "$ONTIME_CACHE.part" "$ONTIME_CACHE"
+fi
 
 # --- 2. Decompress and enlarge -----------------------------------------------
 log "Decompressing and enlarging by $EXTRA_SIZE_MB MB"
@@ -124,6 +145,13 @@ chroot "$ROOT" /bin/bash /tmp/showplaypi-build/chroot-setup.sh packages
 log "Installing ShowPlayPI files"
 bash "$SRC/scripts/install-overlay.sh" "$SRC/rootfs" "$ROOT" "$SRC/meta/permissions.txt" | sed 's/^/    /'
 bash "$SRC/scripts/install-boot.sh" "$SRC/bootfs" "$ROOT/boot/firmware" | sed 's/^/    /'
+log "Installing Companion and the Ontime container image"
+rm -rf "$ROOT/opt/companion"
+mkdir -p "$ROOT/opt/companion"
+tar -xzf "$COMPANION_PACKAGE" -C "$ROOT/opt/companion" --strip-components=1 --no-same-owner
+install -D -m 644 "$ONTIME_CACHE" "$ROOT/usr/share/showplaypi/containers/$ONTIME_ARCHIVE"
+# A freshly flashed card should only show the user files, even before the first start
+python3 "$SRC/rootfs/usr/local/sbin/showplaypi-hide-boot-files" "$ROOT/boot/firmware" | sed 's/^/    /'
 
 cat > "$ROOT/etc/showplaypi-build" <<EOF
 SHOWPLAYPI_GIT=$GITREV
@@ -155,7 +183,18 @@ find "$ROOT/var/log" -type f -exec truncate -s 0 {} +
 rm -rf "${ROOT:?}"/tmp/* "${ROOT:?}"/var/tmp/*
 
 umount -R "$ROOT"
-e2fsck -fy "${LOOP}p2" >/dev/null || [[ $? -le 1 ]] || die "e2fsck after the build failed"
+# Right after unmounting, udev may still hold the partition for a moment ("in use") – retry briefly
+for attempt in 1 2 3 4 5; do
+    fsck_status=0
+    fsck_output=$(e2fsck -fy "${LOOP}p2" 2>&1) || fsck_status=$?
+    (( fsck_status <= 1 )) && break
+    if (( attempt == 5 )); then
+        printf '%s\n' "$fsck_output" >&2
+        die "e2fsck after the build failed"
+    fi
+    udevadm settle 2>/dev/null || true
+    sleep 3
+done
 # Fill free space with zeros: deleted package files would otherwise compress badly
 log "Zeroing free space (smaller download)"
 zerofree "${LOOP}p2"
@@ -167,6 +206,9 @@ log "Compressing to build/out/$NAME.img.xz"
 xz -T0 -6 -c "$IMG" > "$OUT/$NAME.img.xz"
 (cd "$OUT" && sha256sum "$NAME.img.xz" > "$NAME.img.xz.sha256")
 [[ -n ${KEEP_IMG:-} ]] || rm -f "$IMG"
+
+log "Writing the Raspberry Pi Imager list"
+bash "$REPO/build/imager-json.sh" "$OUT/$NAME.img.xz" | sed 's/^/    /'
 
 log "Done: build/out/$NAME.img.xz"
 cat "$OUT/$NAME.img.xz.sha256"

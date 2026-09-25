@@ -1,0 +1,26 @@
+[Unit]
+Description=ShowPlayPI Companion (Bitfocus Companion in the background)
+After=showplaypi-mode.service showplaypi-media.service network.target
+# Only in Companion mode ([SYSTEM] MODE=companion, see showplaypi-mode); the browser shows the emulators
+ConditionPathExists=/run/showplaypi/mode-companion
+ConditionPathExists=/opt/companion/companion_headless.sh
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+# USB surfaces such as the Stream Deck: Companion generates udev rules for its surface modules, and
+# showplaypi-companion-udev installs them (group plugdev); 50-showplaypi-companion.rules covers the first start
+SupplementaryGroups=plugdev dialout input
+Environment="COMPANION_SYNC_UDEV_RULES_COMMAND=sudo -n /usr/local/sbin/showplaypi-companion-udev"
+# Rules of an earlier start, before Companion itself runs
+ExecStartPre=+/usr/local/sbin/showplaypi-companion-udev
+# Configuration on the Linux partition; the web interface on port 8000 (Companion's default)
+ExecStart=/opt/companion/companion_headless.sh --config-dir /home/admin/companion --admin-address 0.0.0.0 --admin-port 8000 --no-notifications
+Restart=always
+RestartSec=3
+# Companion saves its database on shutdown
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

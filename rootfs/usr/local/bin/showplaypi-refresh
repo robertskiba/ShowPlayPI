@@ -2,7 +2,7 @@
 
 set -e
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 
 if [ "$EUID" -ne 0 ]; then
     exec sudo "$0" "$@"

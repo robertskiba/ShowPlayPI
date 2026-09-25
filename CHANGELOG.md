@@ -6,6 +6,113 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Raspberry Pi 5:** the kiosk did not start (Xorg stopped with "Cannot run in framebuffer mode" because
+  the Pi 5 has separate display and 3D devices). Xorg now always uses the vc4 display controller.
+- Runtime-generated files (network profile, setup page, host name) are no longer part of the overlay, so
+  `deploy.sh` never overwrites a device's network settings.
+- `IDLE_CLEAR_SESSION=yes` now also removes the browser's HTTP cache, not only the profile.
+- Starting without a network cable (e.g. for configuration over USB-C) no longer reports a failed network
+  configuration; the connection comes up as soon as a cable is plugged in.
+- Stopping the kiosk took 90 seconds and left X and the browser running (they run in their own login
+  session); on a Pi 5 this could hang the device when a computer was connected via USB-C during
+  playback. The kiosk now stops within a few seconds.
+- **USB configuration drive:** settings saved on the drive could be lost when the USB cable was unplugged
+  right after saving (the Pi kept them in memory for up to 30 seconds and lost power with the cable).
+  While a computer uses the drive, everything it writes is now on the SD card within about a second, and
+  the Windows configurator only reports success once the settings are stored on ShowPlayPI – the cable
+  can be unplugged right after saving.
+
+### Added
+- **Operating modes:** `[SYSTEM] MODE=browser|video|ontime|companion` in `showplaypi.ini` and in the
+  configurator (System tab); only the services of the active mode start.
+- **Companion mode (first version):** Bitfocus Companion 5 runs on ShowPlayPI (official ARM64 build, included
+  in the image; set up at `http://<device name>.local:8000`). The screen shows Companion's emulator chooser
+  (touch, mouse, keyboard); all browser commands keep working. OSC: `/showplaypi/companion/emulators` replies
+  with the list of emulators (for a dropdown in a controller), `/showplaypi/companion/emulator <id|name>`,
+  `/showplaypi/companion/tablet [pages] [columns] [rows]`, `/showplaypi/companion/restart`. USB surfaces
+  such as the Stream Deck get their permissions automatically.
+- **Ontime mode (first version):** an Ontime server runs on ShowPlayPI (official container image, included in
+  the image; editor at `http://<device name>.local:4001`). The screen shows the view from `[ONTIME] VIEW`
+  (default `timer`, options after `?`); `/showplaypi/ontime/view <view> [options]` shows any view with any
+  of its options, e.g. `backstage` `stopCycle=true&extra-info=0-Custom+data`. Ontime uses the device's
+  time zone.
+- **Time zone from the internet connection:** `[SYSTEM] TIMEZONE=auto` (the new default) detects the time zone
+  from the public IP address at every start (free GeoIP service); without internet the last detected time
+  zone is kept. A time zone set in `showplaypi.ini` or the configurator is used as it is.
+- Configurator: tab "Companion / Ontime"; an empty target URL means the default page of the mode.
+- **Video mode (first version):** videos and still images (JPG, PNG, WebP) from the folder `VIDEO` on the
+  drive play full-screen in alphabetical order in a loop, with fades; subfolders are further playlists.
+  Still images show for `[VIDEO] STILL_DURATION` or the time in their file name (`Sponsors [15sec].jpg`),
+  scaled to fit or fill and rotated by their EXIF orientation. New files are picked up while playing.
+  Settings in the `[VIDEO]` section and on the configurator's Video tab; OSC control under
+  `/showplaypi/video/…` ([docs/OSC.md](docs/OSC.md)), including `list` and `status` replies and a blackout
+  with fade. The player runs in the same display session as the browser, so VNC shows it as well.
+  Crossfades are in preparation (transitions fade through black for now).
+  **Recommended format: H.265/HEVC** – decoded in hardware on the Pi 4 and Pi 5 (1080p60 without dropped
+  frames on a Pi 5); the Pi 5 has no H.264 hardware decoder, H.264 up to 1080p30 is fine there.
+- **Sound on every output at the same time:** browser and video sound play on both HDMI ports, the headphone
+  jack (Pi 4) and a USB sound card (outputs 1-2), also when it is plugged in later; outputs without a device
+  that takes sound are skipped. All outputs run at full level, the volume is set centrally.
+- OSC commands of an inactive mode are ignored and logged.
+- **OSC on UDP port 23878** (instead of 9000): a port that common show-control software does not use by
+  default (unlike 9000, the receive port of TouchOSC), so it does not collide with Companion, Ontime or
+  controllers on the same device or network. The Companion demo page in `PRESETS` is updated.
+- **Drive `SHOWPLAYPI` (media partition):** on the first start ShowPlayPI enlarges its Linux partition to
+  12 GiB and creates an exFAT partition in the remaining space (at least 3 GiB, designed for 16 GB cards).
+  It holds `showplaypi.ini`, the Windows configurator and the folders `HTML` (local web pages), `VIDEO`,
+  `AUDIO`, `AUDIO/LOOP` (for the planned players) and `PRESETS` (Companion page).
+  - It is the USB drive over USB-C (replacing the separate small drive image), a network share, and visible
+    in a card reader. The system cannot be damaged from it.
+  - `showplaypi.ini` exists on the drive, on the boot partition (for editing right after flashing) and as
+    the active configuration on the Linux partition; the copy changed since the last start is applied and
+    the others are updated. Deleting it from the drive restores the delivery state.
+  - Configurator, README and folders are restored automatically if deleted or changed.
+  - A newly created drive is always formatted – after re-flashing a card, no files or settings of a
+    previous user reappear (the Imager only overwrites the beginning of the card).
+  - Local web pages move from `content/` on the boot partition to `HTML/`; the new address is
+    `file:///media/showplaypi/HTML/index.html`.
+- **Network share** of the drive (Samba, user `admin`, password `admin`): `\\<device name>.local\SHOWPLAYPI`
+  on Windows (the device also appears under *Network*), `smb://<device name>.local/SHOWPLAYPI` on the Mac.
+  Can be switched off with `[NETWORK_SHARE] ENABLED=no` or in the configurator; pauses while a computer
+  uses the drive over USB-C.
+- **"Save and Restart"** in the configurator: ShowPlayPI restarts and applies the configuration – right
+  away over the network, after ejecting the drive over USB-C. Changes are never applied during operation
+  on their own, so a running show is not interrupted.
+- Configurator: idle timeout in minutes and seconds (the INI keeps seconds); runs as a normal program
+  without the AutoIt tray icon, and a second start brings the open window to the front.
+- Setup page: product name as on the boot logo, a third panel for configuration over the network.
+- Boot logo and startup image show the name **ShowPlayPI** above the logo.
+- **USB configuration mode** (`[SYSTEM] USB_CONFIG_MODE=yes`): while a computer is connected via USB-C,
+  ShowPlayPI is a drive, not a player – playback pauses and a status screen shows the state (a computer's
+  USB port can hardly ever power a Pi for normal operation). The screen confirms when changes are saved
+  ("2 minutes ago" – relative, as the clock is not set without network) and warns about under-voltage.
+  After unplugging the cable, ShowPlayPI restarts with the new settings (with PoE or its power supply).
+- **Startup image during the whole boot:** the kernel logo disappeared when the display driver took over,
+  leaving a black screen for about ten seconds. The startup image is now shown until the kiosk starts.
+  Boot messages (e.g. the file system check) no longer appear over it: in quiet mode the console moves to
+  the invisible tty3 and the cursor is hidden.
+- `[SYSTEM] BOOT_MESSAGES=yes` shows the system messages instead of the startup image (troubleshooting);
+  also available in the Windows configurator, together with the low-power mode switch.
+- **Automatic data hygiene** – devices are often passed on without a reset:
+  - browser caches, history and temporary files are removed at least every 14 days (while the browser
+    keeps running, if necessary)
+  - when the start page in `showplaypi.ini` changes, the browser starts completely clean (cookies, logins,
+    stored site data); pages switched via OSC during a show do not trigger this
+  - temporary files in `/var/tmp` are kept for 14 days at most, the system log is limited to 100 MB and
+    14 days
+- **Unique device names:** the default name `showplaypi` becomes `showplaypi-` plus the last six digits of
+  the MAC address (e.g. `showplaypi-e84042`), so several devices never share a name – even if they are not
+  online at the same time. A name set in `showplaypi.ini` is used as it is.
+- The system files on the SD card's boot partition are hidden, so only `showplaypi.ini`, the README,
+  `version.txt` and `Clear-SD-Card.cmd` are visible when the card is inserted into a computer.
+- `Clear-SD-Card.cmd` on the boot partition turns the card back into an empty card (one partition
+  `SDCARD`) – after a confirmation, and only on the ShowPlayPI card it is started from.
+- `deploy.sh` uses the SSH key `~/.ssh/showplaypi_ed25519` automatically if it exists (no password prompt).
+- The build writes a list for Raspberry Pi Imager next to every image (`*.rpi-imager.json`, with an icon),
+  so ShowPlayPI can appear in the Imager's OS list. It switches off the Imager's OS customisation, which
+  would interfere with ShowPlayPI's own configuration.
+
 ## [1.0.0-beta.2] – 2026-09-24
 
 ### Added

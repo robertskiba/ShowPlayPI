@@ -1,0 +1,232 @@
+#!/bin/bash
+# USB configuration mode.
+#
+# As soon as a computer is connected via USB-C, ShowPlayPI is a drive, not a player: kiosk, VNC, watchdog and
+# idle service stop, a status screen is shown, the CPU runs in power-save mode and Wi-Fi/Bluetooth are
+# switched off. A computer's USB port can hardly ever power a Pi reliably, and the media partition belongs
+# to the computer meanwhile anyway (showplaypi-usb-drive).
+#
+# When the USB cable is unplugged (the bus stays idle for a few seconds), ShowPlayPI restarts and applies the
+# new settings – with PoE or its own power supply. Powered by the computer, it simply switches off with the
+# cable.
+#
+# [SYSTEM] USB_CONFIG_MODE=yes (default) | no (keep playing; the media partition still goes to the computer)
+
+CONFIG="/etc/showplaypi/showplaypi.ini"
+STATE_FILE="/run/showplaypi/usb-config-mode"
+# Time the computer's last changes were stored on the SD card (written by showplaypi-usb-drive)
+RECEIVED_FILE="${RECEIVED_FILE:-/run/showplaypi/usb-config-received}"
+POLL_SECONDS=1
+# The cable must be unplugged for this long before ShowPlayPI restarts (no restart on a short glitch)
+UNPLUGGED_SECONDS=3
+
+# Paths can be overridden for tests
+UDC_STATES="${UDC_STATES:-/sys/class/udc/*/state}"
+UDC_DEBUG="${UDC_DEBUG:-/sys/kernel/debug/usb}"
+THROTTLED_COMMAND="${THROTTLED_COMMAND:-vcgencmd get_throttled}"
+UPTIME_FILE="${UPTIME_FILE:-/proc/uptime}"
+
+ini_get() {
+    local section="$1"
+    local key="$2"
+
+    awk -v wanted_section="$section" -v wanted_key="$key" '
+        { sub(/\r$/, "") }
+        /^[[:space:]]*[#;]/ { next }
+        /^[[:space:]]*\[/ {
+            line = $0
+            gsub(/^[[:space:]]*\[/, "", line)
+            gsub(/\][[:space:]]*$/, "", line)
+            section = line
+            next
+        }
+        section == wanted_section {
+            position = index($0, "=")
+            if (position == 0) next
+            key = substr($0, 1, position - 1)
+            value = substr($0, position + 1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            if (key == wanted_key) { print value; exit }
+        }
+    ' "$CONFIG" 2>/dev/null
+}
+
+log_message() {
+    logger -t showplaypi-usb-config-mode "$1"
+    echo "$1"
+}
+
+# The USB bus is idle: no start-of-frame packets from a computer. The USB-C socket of the Pi is also its
+# power input, so the controller cannot see the cable being unplugged when the Pi runs on PoE – the
+# connection state stays "configured". The suspend bit of the device status register (DSTS, bit 0) shows
+# it: a connected computer keeps the bus busy, an unplugged cable (or a sleeping computer) does not.
+usb_bus_idle() {
+    local state_file
+    local regdump
+    local dsts
+    for state_file in $UDC_STATES; do
+        regdump="$UDC_DEBUG/$(basename "$(dirname "$state_file")")/regdump"
+        dsts="$(awk '$1 == "DSTS" { print $3; exit }' "$regdump" 2>/dev/null)"
+        [[ "$dsts" =~ ^0x[0-9a-fA-F]+$ ]] || return 1
+        (( (dsts & 1) == 1 )) || return 1
+    done
+    return 0
+}
+
+# A computer has set up the USB connection and is active on the bus
+usb_host_connected() {
+    local state_file
+    for state_file in $UDC_STATES; do
+        [ "$(cat "$state_file" 2>/dev/null)" = "configured" ] && ! usb_bus_idle && return 0
+    done
+    return 1
+}
+
+usb_cable_unplugged() {
+    local state_file
+    usb_bus_idle && return 0
+    for state_file in $UDC_STATES; do
+        [ "$(cat "$state_file" 2>/dev/null)" = "not attached" ] || return 1
+    done
+    return 0
+}
+
+# Under-voltage now (bit 0) or since boot (bit 16)
+undervoltage_seen() {
+    local value
+    value="$($THROTTLED_COMMAND 2>/dev/null | cut -d= -f2)"
+    [[ "$value" =~ ^0x[0-9a-fA-F]+$ ]] || return 1
+    (( (value & 0x10001) != 0 ))
+}
+
+# "just now", "5 minutes ago", "2 hours ago" – when the computer's last changes were stored.
+# Relative on purpose: without network the clock of the Pi is not set.
+saved_ago() {
+    local saved
+    local now
+    local age
+
+    saved="$(cat "$RECEIVED_FILE" 2>/dev/null)"
+    [[ "$saved" =~ ^[0-9]+$ ]] || return 1
+    now="$(cut -d. -f1 "$UPTIME_FILE")"
+    age=$((now - saved))
+
+    if (( age < 60 )); then
+        echo "just now"
+    elif (( age < 120 )); then
+        echo "1 minute ago"
+    elif (( age < 3600 )); then
+        echo "$((age / 60)) minutes ago"
+    elif (( age < 7200 )); then
+        echo "1 hour ago"
+    else
+        echo "$((age / 3600)) hours ago"
+    fi
+}
+
+# Static status screen instead of the browser (a still image costs almost no power)
+show_status_screen() {
+    local notice=""
+    local warning=""
+    local saved
+    local version
+
+    saved="$(saved_ago)" && notice="✓  Changes saved $saved – you can unplug the USB cable now."
+    undervoltage_seen && warning="⚠  Under-voltage: the computer's USB port is too weak for normal operation"
+    version="$(/usr/local/bin/showplaypi-version --short 2>/dev/null || echo unknown)"
+
+    # Hide the console cursor so it does not blink over the image
+    echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
+    setterm --cursor off --blank 0 > /dev/tty1 2>/dev/null || true
+
+    /usr/local/bin/showplaypi-status-screen \
+        "USB configuration mode" \
+        "Connected to a computer via USB-C – the drive SHOWPLAYPI is open on the computer." \
+        "Playback is paused while the computer is connected." \
+        "When finished, unplug the USB cable: ShowPlayPI restarts with the new settings." \
+        --notice "$notice" \
+        --warning "$warning" \
+        --footer "Powered by the computer? Then start it with its power supply or PoE.   ·   $(hostname).local   ·   v$version" \
+        || log_message "Status screen could not be drawn."
+}
+
+enter_config_mode() {
+    local file
+
+    log_message "Computer connected via USB-C – switching to USB configuration mode."
+    echo "active" > "$STATE_FILE" 2>/dev/null || true
+
+    systemctl stop showplaypi-kiosk.service showplaypi-vnc.service \
+        showplaypi-idle.service showplaypi-web-watchdog.service showplaypi-video.service \
+        showplaypi-companion.service showplaypi-ontime.service 2>/dev/null
+
+    for file in /sys/devices/system/cpu/cpufreq/policy*/scaling_governor; do
+        echo powersave > "$file" 2>/dev/null || true
+    done
+
+    rfkill block wifi bluetooth 2>/dev/null || true
+
+    show_status_screen
+}
+
+# While in configuration mode: update the status screen, restart once the cable is unplugged
+watch_config_mode() {
+    local warned="no"
+    local shown_saved
+    local saved
+    local unplugged_for=0
+
+    undervoltage_seen && warned="yes"
+    shown_saved="$(saved_ago)"
+    while true; do
+        sleep "$POLL_SECONDS"
+
+        if usb_cable_unplugged; then
+            unplugged_for=$((unplugged_for + POLL_SECONDS))
+            if (( unplugged_for >= UNPLUGGED_SECONDS )); then
+                log_message "USB cable unplugged – restarting to apply the configuration."
+                systemctl reboot
+                exit 0
+            fi
+            continue
+        fi
+        unplugged_for=0
+
+        # New changes, or the next minute of "… minutes ago"
+        saved="$(saved_ago)"
+        if [ "$saved" != "$shown_saved" ]; then
+            [ "$saved" = "just now" ] && log_message "Changes from the computer saved – updating the status screen."
+            shown_saved="$saved"
+            show_status_screen
+        elif [ "$warned" = "no" ] && undervoltage_seen; then
+            warned="yes"
+            log_message "Under-voltage reported – updating the status screen."
+            show_status_screen
+        fi
+    done
+}
+
+main() {
+    local setting
+
+    setting="$(ini_get SYSTEM USB_CONFIG_MODE)"
+    case "${setting,,}" in
+        off|no|0|false)
+            log_message "USB configuration mode is switched off in showplaypi.ini – playback continues while a computer is connected."
+            exec sleep infinity
+            ;;
+    esac
+
+    while true; do
+        if usb_host_connected; then
+            enter_config_mode
+            watch_config_mode
+        fi
+        sleep "$POLL_SECONDS"
+    done
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main
+fi

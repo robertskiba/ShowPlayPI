@@ -2,6 +2,10 @@
 Description=ShowPlayPI idle timeout (return to the start page)
 After=showplaypi-kiosk.service
 
+# Only in modes with the kiosk browser: browser, ontime, companion (see showplaypi-mode)
+After=showplaypi-mode.service
+ConditionPathExists=/run/showplaypi/mode-browser-ui
+
 [Service]
 Type=simple
 User=admin

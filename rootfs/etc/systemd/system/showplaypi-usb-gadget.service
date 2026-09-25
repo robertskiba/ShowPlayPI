@@ -1,7 +1,6 @@
 [Unit]
 Description=ShowPlayPI USB configuration drive
-After=local-fs.target
-Before=showplaypi-system-config.service showplaypi-network-config.service multi-user.target
+After=local-fs.target showplaypi-media.service
 
 [Service]
 Type=oneshot

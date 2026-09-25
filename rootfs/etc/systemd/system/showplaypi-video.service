@@ -1,0 +1,24 @@
+[Unit]
+Description=ShowPlayPI video player
+# Needs the SHOWPLAYPI drive (VIDEO folder) and the X session of the kiosk unit: mpv runs full-screen in it,
+# so VNC and the display settings work as in browser mode
+Requires=showplaypi-kiosk.service
+# Sound goes through PipeWire of the user admin (runs from boot, see /var/lib/systemd/linger/admin)
+After=showplaypi-media.service showplaypi-mode.service showplaypi-kiosk.service user@1000.service
+# Only in video mode ([SYSTEM] MODE=video, see showplaypi-mode)
+ConditionPathExists=/run/showplaypi/mode-video
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+SupplementaryGroups=video render audio
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/admin/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/local/bin/showplaypi-video
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -34,3 +34,21 @@ mc
 # --- Boot splash ---
 rpi-splash-screen-support
 imagemagick
+# Network share of the SHOWPLAYPI drive; wsdd2 shows it in the Windows network view
+samba
+wsdd2
+
+# --- Video mode (showplaypi-video) ---
+mpv
+
+# --- Sound: one output that plays on every HDMI port, the headphone jack (Pi 4) and USB sound cards ---
+# PipeWire runs for the user admin from boot (rootfs/var/lib/systemd/linger/admin)
+pipewire
+wireplumber
+pipewire-pulse
+pipewire-alsa
+# Real-time priority for the audio threads (no dropouts under high CPU load)
+rtkit
+
+# --- Ontime mode: Ontime runs as a container (no permanently running daemon, unlike Docker) ---
+podman

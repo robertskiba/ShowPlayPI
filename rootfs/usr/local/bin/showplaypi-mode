@@ -1,0 +1,87 @@
+#!/bin/bash
+# The operating mode of ShowPlayPI: [SYSTEM] MODE in showplaypi.ini (only changed through the configuration,
+# takes effect after a restart).
+#
+#   showplaypi-mode              prints the mode: browser (default), video, ontime or companion
+#   showplaypi-mode is <mode>    exit code 0 if this mode is active
+#   showplaypi-mode has-browser  exit code 0 if the mode shows the kiosk browser (browser, ontime, companion)
+#   showplaypi-mode flags        writes the flag files below (showplaypi-mode.service, once per start)
+#
+# The units start only in their mode through ConditionPathExists= on these flags. (ExecCondition= is not
+# used: with Restart=always a skipped unit was restarted again and again, and in the kiosk unit startx
+# even ran despite the failed condition.)
+#   /run/showplaypi/mode                the active mode
+#   /run/showplaypi/mode-<mode>         e.g. mode-video
+#   /run/showplaypi/mode-x11            the mode runs the X session (kiosk unit, VNC) – every mode so far
+#   /run/showplaypi/mode-browser-ui     the mode shows the kiosk browser
+# Ontime and Companion (releases 2.2/2.3) currently start their browser part only.
+
+CONFIG="/etc/showplaypi/showplaypi.ini"
+FLAG_DIR="/run/showplaypi"
+MODES="browser video ontime companion"
+BROWSER_MODES="browser ontime companion"
+# The video player also runs in the X session, so VNC, display settings and blackout work in every mode
+X11_MODES="browser video ontime companion"
+DEFAULT_MODE="browser"
+
+configured_mode() {
+    awk '
+        { sub(/\r$/, "") }
+        /^[[:space:]]*[#;]/ { next }
+        /^[[:space:]]*\[/ {
+            section = $0
+            gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "", section)
+            next
+        }
+        section == "SYSTEM" {
+            position = index($0, "=")
+            if (position == 0) next
+            key = substr($0, 1, position - 1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            if (key == "MODE") {
+                value = substr($0, position + 1)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                print tolower(value)
+                exit
+            }
+        }
+    ' "$CONFIG" 2>/dev/null
+}
+
+active_mode() {
+    local mode
+    mode="$(configured_mode)"
+    # Unknown or missing: the browser, so the device always shows something
+    [[ " $MODES " == *" $mode "* ]] || mode="$DEFAULT_MODE"
+    echo "$mode"
+}
+
+case "${1:-}" in
+    "")
+        active_mode
+        ;;
+    is)
+        [ "$(active_mode)" = "${2:-}" ]
+        ;;
+    has-browser)
+        [[ " $BROWSER_MODES " == *" $(active_mode) "* ]]
+        ;;
+    flags)
+        mode="$(active_mode)"
+        mkdir -p "$FLAG_DIR"
+        rm -f "$FLAG_DIR"/mode-*
+        echo "$mode" > "$FLAG_DIR/mode"
+        touch "$FLAG_DIR/mode-$mode"
+        if [[ " $X11_MODES " == *" $mode "* ]]; then
+            touch "$FLAG_DIR/mode-x11"
+        fi
+        if [[ " $BROWSER_MODES " == *" $mode "* ]]; then
+            touch "$FLAG_DIR/mode-browser-ui"
+        fi
+        echo "Operating mode: $mode"
+        ;;
+    *)
+        echo "Usage: $0 [is <mode> | has-browser | flags]" >&2
+        exit 2
+        ;;
+esac

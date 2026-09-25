@@ -1,0 +1,15 @@
+[Unit]
+Description=ShowPlayPI operating mode
+# The active configuration is up to date after showplaypi-media (the drive's copy wins)
+After=showplaypi-media.service systemd-tmpfiles-setup.service
+Before=showplaypi-kiosk.service showplaypi-vnc.service showplaypi-idle.service
+Before=showplaypi-web-watchdog.service showplaypi-video.service showplaypi-osc.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Flag files in /run/showplaypi, checked by the units of each mode (ConditionPathExists=)
+ExecStart=/usr/local/bin/showplaypi-mode flags
+
+[Install]
+WantedBy=multi-user.target

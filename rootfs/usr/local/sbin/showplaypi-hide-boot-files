@@ -1,0 +1,59 @@
+#!/usr/bin/python3
+"""Hide the system files on the boot partition (FAT "hidden" attribute).
+
+When the SD card is inserted into a computer, only the files meant for the user stay visible – this makes it
+less likely that someone deletes the kernel or firmware files by accident. The Raspberry Pi firmware ignores
+the attribute. Runs at every start, so files added by updates are hidden as well.
+
+Usage: showplaypi-hide-boot-files [<boot partition>]
+"""
+
+import fcntl
+import os
+import struct
+import sys
+
+BOOT_DIR = "/boot/firmware"
+VISIBLE = {"showplaypi.ini", "readme.txt", "version.txt", "clear-sd-card.cmd"}
+
+# linux/msdos_fs.h
+FAT_IOCTL_GET_ATTRIBUTES = 0x80047210
+FAT_IOCTL_SET_ATTRIBUTES = 0x40047211
+ATTR_HIDDEN = 0x02
+
+
+def set_hidden(path, hidden):
+    """Returns True if the attribute was changed."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        attributes = struct.unpack("I", fcntl.ioctl(fd, FAT_IOCTL_GET_ATTRIBUTES, b"\0" * 4))[0]
+        wanted = attributes | ATTR_HIDDEN if hidden else attributes & ~ATTR_HIDDEN
+        if wanted == attributes:
+            return False
+        fcntl.ioctl(fd, FAT_IOCTL_SET_ATTRIBUTES, struct.pack("I", wanted))
+        return True
+    finally:
+        os.close(fd)
+
+
+def main():
+    boot_dir = sys.argv[1] if len(sys.argv) > 1 else BOOT_DIR
+    changed = 0
+
+    # Only the top level: the contents of a hidden folder are hidden anyway
+    for name in os.listdir(boot_dir):
+        if name.lower() == "system volume information":
+            continue
+        try:
+            if set_hidden(os.path.join(boot_dir, name), name.lower() not in VISIBLE):
+                changed += 1
+        except OSError as error:
+            print(f"showplaypi-hide-boot-files: {name}: {error}", file=sys.stderr)
+
+    if changed:
+        os.sync()
+        print(f"Boot partition: attributes of {changed} entries updated.")
+
+
+if __name__ == "__main__":
+    main()

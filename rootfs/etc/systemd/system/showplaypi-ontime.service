@@ -1,0 +1,25 @@
+[Unit]
+Description=ShowPlayPI Ontime (Ontime server in the background, container)
+After=showplaypi-mode.service showplaypi-media.service network.target
+# Only in Ontime mode ([SYSTEM] MODE=ontime, see showplaypi-mode); the browser shows the timer
+ConditionPathExists=/run/showplaypi/mode-ontime
+
+[Service]
+Type=simple
+# The image comes with ShowPlayPI; it is loaded into Podman on the first start (never downloaded here)
+ExecStartPre=/usr/local/sbin/showplaypi-container-image docker.io/getontime/ontime:v4 ontime-v4.tar
+ExecStartPre=/usr/bin/install -d -o admin -g admin /home/admin/ontime
+ExecStartPre=-/usr/bin/podman rm --force showplaypi-ontime
+# Host network: web interface on port 4001, Ontime's own OSC ports work as configured in Ontime.
+# Time zone: Node in the image ignores a mounted /etc/localtime and needs TZ ([SYSTEM] TIMEZONE).
+ExecStart=/bin/sh -c 'exec /usr/bin/podman run --rm --name showplaypi-ontime --network host --pull=never \
+    --volume /home/admin/ontime:/data --env TZ="$(cat /etc/timezone 2>/dev/null || echo UTC)" \
+    docker.io/getontime/ontime:v4'
+ExecStop=/usr/bin/podman stop --time 10 showplaypi-ontime
+Restart=always
+RestartSec=3
+# Loading the image on the first start takes a while
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target

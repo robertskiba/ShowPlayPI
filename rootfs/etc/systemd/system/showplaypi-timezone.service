@@ -1,0 +1,12 @@
+[Unit]
+Description=ShowPlayPI time zone from the internet connection ([SYSTEM] TIMEZONE=auto)
+Wants=network-online.target
+After=network-online.target showplaypi-system-config.service
+
+[Service]
+# Runs in the background and never delays the start (retries for up to three minutes without internet)
+Type=simple
+ExecStart=/usr/local/sbin/showplaypi-timezone
+
+[Install]
+WantedBy=multi-user.target

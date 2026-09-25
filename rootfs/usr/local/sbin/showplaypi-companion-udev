@@ -1,0 +1,23 @@
+#!/bin/bash
+# Installs the USB rules that Companion generates for its surface modules (Stream Deck, X-keys, …).
+# Companion runs it after regenerating them (COMPANION_SYNC_UDEV_RULES_COMMAND in showplaypi-companion.service,
+# via passwordless sudo). The rules use the group plugdev, which the user admin is a member of.
+
+GENERATED="/home/admin/companion/udev-rules/50-companion-headless.rules"
+INSTALLED="/etc/udev/rules.d/50-companion-headless.rules"
+
+[ -s "$GENERATED" ] || exit 0
+
+temporary="$(mktemp)"
+sed 's/GROUP="companion"/GROUP="plugdev"/g' "$GENERATED" > "$temporary"
+
+if cmp -s "$temporary" "$INSTALLED"; then
+    rm -f "$temporary"
+    exit 0
+fi
+
+install -m 644 "$temporary" "$INSTALLED"
+rm -f "$temporary"
+udevadm control --reload-rules
+udevadm trigger --subsystem-match=hidraw --subsystem-match=usb --subsystem-match=input
+logger -t showplaypi-companion-udev "USB rules for Companion surfaces updated."

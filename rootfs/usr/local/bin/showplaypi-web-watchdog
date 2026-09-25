@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 DISPLAY_NAME=":0"
 XAUTHORITY_FILE="/home/admin/.Xauthority"
 DEFAULT_CHECK_INTERVAL=5

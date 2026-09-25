@@ -1,0 +1,13 @@
+[Unit]
+Description=ShowPlayPI boot splash
+DefaultDependencies=no
+After=local-fs.target
+# Only in quiet boot mode – with boot messages enabled the text stays visible
+ConditionKernelCommandLine=fullscreen_logo=1
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/showplaypi-splash
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=ShowPlayPI: restart requested with the configurator ("Save and Restart")
+# Not part of the early boot like other path units: the request file on the media partition is only
+# watched after showplaypi-media has mounted it (and removed a request left over from before the start)
+DefaultDependencies=no
+After=showplaypi-media.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Path]
+PathExists=/media/showplaypi/.restart-request
+
+[Install]
+WantedBy=multi-user.target

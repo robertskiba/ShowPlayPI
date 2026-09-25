@@ -1,276 +1,22 @@
 #!/bin/sh
+# USB device mode over USB-C: ShowPlayPI appears to a connected computer as a removable drive.
+# The drive starts without a medium; showplaypi-usb-drive inserts the media partition when a computer
+# connects and takes it back when the computer is done.
 set -eu
 
 GADGET_DIR="/sys/kernel/config/usb_gadget/showplaypi"
-IMAGE_FILE="/var/lib/showplaypi-usb/config.img"
-MOUNT_DIR="/mnt/showplaypi-usb"
-
-RELEASE_FILE="/etc/showplaypi-release"
-
-# Files that always belong on the USB drive (README, Windows configurator, Companion demo)
-USB_DEFAULTS="/usr/share/showplaypi/usb"
-USB_LABEL="SHOWPLAYPI"
-USB_SIZE="32M"
-
-create_image()
-{
-    echo "Creating USB configuration drive ($USB_SIZE, label $USB_LABEL)."
-
-    mkdir -p "$(dirname "$IMAGE_FILE")"
-    rm -f "$IMAGE_FILE.tmp"
-    truncate -s "$USB_SIZE" "$IMAGE_FILE.tmp"
-    mkfs.vfat -n "$USB_LABEL" "$IMAGE_FILE.tmp" >/dev/null
-    mv "$IMAGE_FILE.tmp" "$IMAGE_FILE"
-
-    # A new drive has no sync history: the SD card wins on the first synchronization.
-    rm -f /var/lib/showplaypi-usb/last-sync.sha256 \
-          /var/lib/showplaypi-usb/last-content-sync.sha256
-}
-
-install_usb_defaults()
-{
-    [ -d "$USB_DEFAULTS" ] || return 0
-
-    for FILE in "$USB_DEFAULTS"/*; do
-        [ -f "$FILE" ] || continue
-        TARGET="$MOUNT_DIR/$(basename "$FILE")"
-
-        if ! cmp -s "$FILE" "$TARGET"; then
-            cp "$FILE" "$TARGET.tmp"
-            mv "$TARGET.tmp" "$TARGET"
-        fi
-    done
-}
-
-write_version_file()
-{
-    TARGET_DIR="$1"
-    VERSION="unknown"
-    BUILD_DATE="unknown"
-
-    if [ -r "$RELEASE_FILE" ]; then
-        # shellcheck disable=SC1090
-        . "$RELEASE_FILE"
-
-        VERSION="${SHOWPLAYPI_VERSION:-unknown}"
-        BUILD_DATE="${SHOWPLAYPI_BUILD_DATE:-${SHOWPLAYPI_RELEASE_DATE:-unknown}}"
-    fi
-
-    {
-        printf 'ShowPlayPI Version: %s\n' "$VERSION"
-        printf 'Build Date: %s\n' "$BUILD_DATE"
-    } > "$TARGET_DIR/.version.txt.tmp"
-
-    mv "$TARGET_DIR/.version.txt.tmp" "$TARGET_DIR/version.txt"
-}
-
-content_hash()
-{
-    DIRECTORY="$1"
-
-    (
-        cd "$DIRECTORY" || exit 1
-
-        find . -type f -print0 |
-            LC_ALL=C sort -z |
-            xargs -0 -r sha256sum
-    ) |
-        sha256sum |
-        awk '{print $1}'
-}
-
-
-sync_usb_config()
-{
-    USB_CONFIG="$MOUNT_DIR/showplaypi.ini"
-    BOOT_CONFIG="/boot/firmware/showplaypi.ini"
-    STATE_FILE="/var/lib/showplaypi-usb/last-sync.sha256"
-
-    SD_CONTENT="/boot/firmware/content"
-    USB_CONTENT="$MOUNT_DIR/content"
-    CONTENT_STATE="/var/lib/showplaypi-usb/last-content-sync.sha256"
-
-    mkdir -p "$MOUNT_DIR"
-    mkdir -p "$(dirname "$STATE_FILE")"
-
-    write_version_file "/boot/firmware"
-
-    if mountpoint -q "$MOUNT_DIR"; then
-        umount "$MOUNT_DIR"
-    fi
-
-    # Repair minor FAT errors after an unsafe USB disconnect.
-    fsck.vfat -a "$IMAGE_FILE" >/dev/null 2>&1 || true
-
-    if ! mount -o loop,rw "$IMAGE_FILE" "$MOUNT_DIR"; then
-        echo "USB image could not be mounted; keeping SD configuration."
-        return 0
-    fi
-
-    write_version_file "$MOUNT_DIR"
-    install_usb_defaults
-
-    #
-    # Synchronize showplaypi.ini
-    #
-
-    BOOT_HASH=""
-    USB_HASH=""
-    LAST_HASH=""
-
-    if [ -s "$BOOT_CONFIG" ]; then
-        BOOT_HASH="$(sha256sum "$BOOT_CONFIG" | awk '{print $1}')"
-    fi
-
-    if [ -s "$USB_CONFIG" ] &&
-       grep -q '^HOSTNAME=' "$USB_CONFIG" &&
-       grep -q '^URL=' "$USB_CONFIG"; then
-        USB_HASH="$(sha256sum "$USB_CONFIG" | awk '{print $1}')"
-    fi
-
-    if [ -s "$STATE_FILE" ]; then
-        LAST_HASH="$(cat "$STATE_FILE")"
-    fi
-
-    if [ -z "$USB_HASH" ]; then
-        echo "USB configuration is invalid; SD configuration retained."
-
-        if [ -n "$BOOT_HASH" ]; then
-            cp "$BOOT_CONFIG" "$MOUNT_DIR/.showplaypi.ini.tmp"
-            sync
-            mv "$MOUNT_DIR/.showplaypi.ini.tmp" "$USB_CONFIG"
-            USB_HASH="$BOOT_HASH"
-        fi
-
-    elif [ -z "$BOOT_HASH" ]; then
-        # The SD configuration is missing or empty: restore it from the USB drive.
-        echo "SD configuration is missing; importing USB configuration."
-
-        cp "$USB_CONFIG" /boot/firmware/.showplaypi.ini.tmp
-        sync
-        mv /boot/firmware/.showplaypi.ini.tmp "$BOOT_CONFIG"
-        BOOT_HASH="$USB_HASH"
-
-    elif [ -n "$LAST_HASH" ] &&
-         [ "$BOOT_HASH" != "$LAST_HASH" ]; then
-
-        # SD changed. SD also wins if both sides changed.
-        echo "SD configuration changed; SD configuration wins."
-
-        cp "$BOOT_CONFIG" "$MOUNT_DIR/.showplaypi.ini.tmp"
-        sync
-        mv "$MOUNT_DIR/.showplaypi.ini.tmp" "$USB_CONFIG"
-        USB_HASH="$BOOT_HASH"
-
-    elif [ -n "$LAST_HASH" ] &&
-         [ "$USB_HASH" != "$LAST_HASH" ]; then
-
-        # Only USB changed.
-        echo "USB configuration changed; importing it."
-
-        cp "$USB_CONFIG" /boot/firmware/.showplaypi.ini.tmp
-        sync
-        mv /boot/firmware/.showplaypi.ini.tmp "$BOOT_CONFIG"
-        BOOT_HASH="$USB_HASH"
-
-    elif [ -z "$LAST_HASH" ]; then
-        # Safe default on the first synchronization: SD wins.
-        echo "No configuration synchronization state found; SD wins."
-
-        cp "$BOOT_CONFIG" "$MOUNT_DIR/.showplaypi.ini.tmp"
-        sync
-        mv "$MOUNT_DIR/.showplaypi.ini.tmp" "$USB_CONFIG"
-        USB_HASH="$BOOT_HASH"
-
-    else
-        echo "USB and SD configurations are already synchronized."
-    fi
-
-    if [ -n "$BOOT_HASH" ]; then
-        printf '%s\n' "$BOOT_HASH" > "$STATE_FILE.tmp"
-        mv "$STATE_FILE.tmp" "$STATE_FILE"
-    fi
-
-    #
-    # Synchronize the content directory
-    #
-
-    mkdir -p "$SD_CONTENT"
-    mkdir -p "$USB_CONTENT"
-
-    SD_CONTENT_HASH="$(content_hash "$SD_CONTENT")"
-    USB_CONTENT_HASH="$(content_hash "$USB_CONTENT")"
-    LAST_CONTENT_HASH=""
-
-    if [ -s "$CONTENT_STATE" ]; then
-        LAST_CONTENT_HASH="$(cat "$CONTENT_STATE")"
-    fi
-
-    if [ -z "$LAST_CONTENT_HASH" ]; then
-        echo "No content synchronization state found; SD content wins."
-
-        rsync -rt \
-            --delete \
-            --modify-window=1 \
-            "$SD_CONTENT/" "$USB_CONTENT/"
-
-        FINAL_CONTENT_HASH="$SD_CONTENT_HASH"
-
-    elif [ "$SD_CONTENT_HASH" != "$LAST_CONTENT_HASH" ]; then
-        # SD also wins if both content directories changed.
-        echo "SD content changed; SD content wins."
-
-        rsync -rt \
-            --delete \
-            --modify-window=1 \
-            "$SD_CONTENT/" "$USB_CONTENT/"
-
-        FINAL_CONTENT_HASH="$SD_CONTENT_HASH"
-
-    elif [ "$USB_CONTENT_HASH" != "$LAST_CONTENT_HASH" ]; then
-        echo "USB content changed; importing it."
-
-        rsync -rt \
-            --delete \
-            --modify-window=1 \
-            "$USB_CONTENT/" "$SD_CONTENT/"
-
-        FINAL_CONTENT_HASH="$USB_CONTENT_HASH"
-
-    else
-        echo "USB and SD content are already synchronized."
-
-        FINAL_CONTENT_HASH="$SD_CONTENT_HASH"
-    fi
-
-    printf '%s\n' "$FINAL_CONTENT_HASH" > "$CONTENT_STATE.tmp"
-    mv "$CONTENT_STATE.tmp" "$CONTENT_STATE"
-
-    sync
-    umount "$MOUNT_DIR"
-}
 
 
 start_gadget()
 {
-    if [ ! -f "$IMAGE_FILE" ]; then
-        create_image
-    fi
-
     if [ -d "$GADGET_DIR" ] &&
        [ -s "$GADGET_DIR/UDC" ]; then
         echo "ShowPlayPI USB gadget is already active."
         exit 0
     fi
 
-    sync_usb_config
-
     modprobe libcomposite
     modprobe usb_f_mass_storage
-
-    if mountpoint -q "$MOUNT_DIR"; then
-        umount "$MOUNT_DIR"
-    fi
 
     mkdir -p "$GADGET_DIR"
     cd "$GADGET_DIR"
@@ -292,11 +38,12 @@ start_gadget()
 
     mkdir -p functions/mass_storage.usb0
     echo 1 > functions/mass_storage.usb0/stall
+    # Removable: the computer can eject the drive, and the medium can be inserted later
     echo 1 > functions/mass_storage.usb0/lun.0/removable
     echo 0 > functions/mass_storage.usb0/lun.0/ro
     echo 0 > functions/mass_storage.usb0/lun.0/cdrom
-    echo "$IMAGE_FILE" \
-        > functions/mass_storage.usb0/lun.0/file
+    # Honour "write through" requests of the computer (FUA)
+    echo 0 > functions/mass_storage.usb0/lun.0/nofua
 
     if [ ! -L configs/c.1/mass_storage.usb0 ]; then
         ln -s \

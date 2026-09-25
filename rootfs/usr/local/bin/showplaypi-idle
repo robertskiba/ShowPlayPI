@@ -7,8 +7,8 @@ Settings in showplaypi.ini, section [BROWSER]:
                       reload = always reset to the start page after user input
   IDLE_CLEAR_SESSION  yes = clear cookies, form data and logins on reset
 
-The OSC command /showplaypi/idle overrides IDLE_TIMEOUT for the running session
-(file /run/showplaypi/idle-timeout).
+The OSC command /showplaypi/browser/idle overrides IDLE_TIMEOUT for the running session
+(file /run/showplaypi/browser/idle-timeout).
 
 A reset only happens after real user input: display-only screens without touch are never reset, and
 a start page that redirects elsewhere does not cause a reset loop.
@@ -22,7 +22,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-CONFIG_FILE = Path("/boot/firmware/showplaypi.ini")
+CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
 RUNTIME_DIRECTORY = Path("/run/showplaypi")
 IDLE_TIMEOUT_FILE = RUNTIME_DIRECTORY / "idle-timeout"
 SYNTHETIC_INPUT_FILE = RUNTIME_DIRECTORY / "synthetic-input"

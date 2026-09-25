@@ -4,6 +4,10 @@ Wants=network-online.target
 Requires=showplaypi-kiosk.service
 After=network-online.target showplaypi-kiosk.service
 
+# X session: in every mode with a picture – browser, video, ontime, companion (see showplaypi-mode)
+After=showplaypi-mode.service
+ConditionPathExists=/run/showplaypi/mode-x11
+
 [Service]
 Type=simple
 User=admin

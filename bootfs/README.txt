@@ -14,6 +14,17 @@ SD card before inserting it into ShowPlayPI.
 
 Changes are applied after restarting ShowPlayPI.
 
+On the first start ShowPlayPI creates a second drive, SHOWPLAYPI, in the free
+space of the SD card. It holds the same showplaypi.ini, the Windows configurator
+and folders for your own files (HTML, VIDEO, AUDIO, PRESETS), and it is also
+reachable over USB-C and over the network. Edit either copy of showplaypi.ini:
+the changed one is applied at the next start and the other one is updated.
+
+To use the card for something else, start Clear-SD-Card.cmd on this drive
+(Windows). After a confirmation it removes all ShowPlayPI partitions and
+leaves an empty card with one partition SDCARD. It works only on the
+ShowPlayPI card it is started from.
+
 
 ===============================================================================
 Quick Start
@@ -41,11 +52,16 @@ System Settings
 
 HOSTNAME=showplaypi
 
-    Network hostname used for SSH and local discovery.
+    Device name used on the network.
 
-    The device may be reachable as:
+    The default "showplaypi" becomes "showplaypi-" plus the last six digits
+    of the MAC address, for example:
 
-        showplaypi.local
+        showplaypi-e84042
+
+    Every device thus has its own name from the first start. It is
+    reachable as <name>.local (e.g. showplaypi-e84042.local); the name is
+    shown on the setup page. Any other name is used as it is.
 
 
 TIMEZONE=Europe/Berlin
@@ -66,6 +82,28 @@ NTP_SERVER=192.53.103.108
 
     The default IP belongs to a public PTB time server in Germany.
     An IP address works without DNS.
+
+
+USB_CONFIG_MODE=yes
+
+    USB configuration mode. While a computer is connected via USB-C,
+    ShowPlayPI is a drive, not a player: playback pauses and a status screen
+    is shown. After unplugging the cable, ShowPlayPI restarts with the new
+    settings (when powered by PoE or its power supply; powered by the
+    computer it simply switches off).
+
+    yes = configuration mode while a computer is connected
+    no  = playback continues; the drive SHOWPLAYPI still goes to the
+          computer, so local pages from it are not available meanwhile
+
+
+BOOT_MESSAGES=no
+
+    yes = show the system messages on the screen while ShowPlayPI starts
+          (for troubleshooting)
+    no  = show the startup image
+
+    A change restarts ShowPlayPI once more automatically.
 
 
 ===============================================================================
@@ -234,8 +272,8 @@ IDLE_CLEAR_SESSION=yes
     does not see the data of the previous one. Recommended for public kiosks.
 
 
-A page shown via OSC (/showplaypi/url) is the start page until the next
-restart. The idle timeout can also be changed via OSC (/showplaypi/idle)
+A page shown via OSC (/showplaypi/browser/url) is the start page until the next
+restart. The idle timeout can also be changed via OSC (/showplaypi/browser/idle)
 until the next restart.
 
 
@@ -331,13 +369,41 @@ PORT
 
 Connect with a VNC viewer using:
 
-    showplaypi.local:5900
+    showplaypi-xxxxxx.local:5900    (device name: see HOSTNAME)
 
 or the current IP address:
 
     192.168.1.100:5900
 
 VNC displays the actual Chromium kiosk session shown on the HDMI output.
+
+
+===============================================================================
+Network Share
+===============================================================================
+
+[NETWORK_SHARE]
+
+ENABLED=yes
+
+
+ENABLED
+
+    Available values:
+
+        yes
+        no
+
+    Shares the SHOWPLAYPI drive (configuration, HTML, VIDEO, AUDIO, PRESETS)
+    on the local network.
+
+    Windows:  \\showplaypi-xxxxxx.local\SHOWPLAYPI
+    Mac:      smb://showplaypi-xxxxxx.local/SHOWPLAYPI
+
+    showplaypi-xxxxxx is the device name (see HOSTNAME).
+
+    User name admin, password admin. While a computer uses the drive over
+    USB-C, the network share pauses.
 
 
 ===============================================================================

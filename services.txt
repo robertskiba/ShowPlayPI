@@ -2,14 +2,31 @@
 # Format: enable|disable <unit>
 # Applied by build/build.sh (new image) and deploy.sh (running Pi).
 
+enable showplaypi-splash.service
+enable showplaypi-media.service
+enable showplaypi-restart.path
 enable showplaypi-system-config.service
+enable showplaypi-timezone.service
 enable showplaypi-network-config.service
 enable showplaypi-usb-gadget.service
+enable showplaypi-usb-drive.service
+enable smbd.service
+enable wsdd2.service
+# No NetBIOS: the share is found through mDNS and WS-Discovery
+disable nmbd.service
 enable showplaypi-kiosk.service
 enable showplaypi-vnc.service
 enable showplaypi-web-watchdog.service
 enable showplaypi-osc.service
 enable showplaypi-idle.service
+# Operating mode: showplaypi-mode.service writes flags that the units of each mode check
+enable showplaypi-mode.service
+enable showplaypi-video.service
+# Companion mode (native, /opt/companion) and Ontime mode (container in Podman)
+enable showplaypi-companion.service
+enable showplaypi-ontime.service
+enable showplaypi-data-hygiene.timer
+enable showplaypi-usb-config-mode.service
 enable ssh.service
 
 # tty1 belongs to the kiosk session (showplaypi-kiosk.service starts X there)

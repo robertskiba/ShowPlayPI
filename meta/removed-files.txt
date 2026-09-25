@@ -1,3 +1,11 @@
 # Files that earlier ShowPlayPI versions installed and that no longer exist in rootfs/.
 # deploy.sh removes them from a running Pi (a freshly built image never contains them).
 # One absolute path per line.
+/usr/local/sbin/showplaypi-usb-sync
+/etc/systemd/system/showplaypi-usb-sync.service
+/usr/share/showplaypi/usb/ShowPlayPI Companion Demo.companionconfig
+/usr/local/sbin/showplaypi-hostname-check
+/etc/systemd/system/showplaypi-hostname-check.service
+/var/lib/showplaypi/auto-hostname
+/usr/local/sbin/showplaypi-power-mode
+/etc/systemd/system/showplaypi-power-mode.service

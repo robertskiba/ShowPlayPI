@@ -4,6 +4,10 @@ Wants=network-online.target
 After=network-online.target systemd-user-sessions.service
 Conflicts=getty@tty1.service
 
+# X session: in every mode with a picture – browser, video, ontime, companion (see showplaypi-mode)
+After=showplaypi-mode.service
+ConditionPathExists=/run/showplaypi/mode-x11
+
 [Service]
 Type=simple
 User=admin
@@ -19,6 +23,12 @@ TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=no
 ExecStart=/usr/bin/startx -- vt1 -keeptty
+# startx runs X and the browser in their own login session, so stopping the service only reached startx:
+# X and Chromium kept running for 90 seconds (and a Pi 5 could hang). xinit shuts both down cleanly.
+ExecStop=/usr/bin/pkill --signal TERM --exact xinit
+TimeoutStopSec=15
+# startx reports 1 when xinit was stopped this way
+SuccessExitStatus=1
 Restart=always
 RestartSec=3
 

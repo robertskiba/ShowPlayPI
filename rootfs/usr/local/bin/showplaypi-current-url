@@ -1,8 +1,19 @@
 #!/bin/bash
+# The page the kiosk browser shows.
+#
+#   showplaypi-current-url          the page of the current session: set via OSC, otherwise the start page
+#   showplaypi-current-url --home   the start page from showplaypi.ini (ignores a page set via OSC)
+#
+# Start page: [BROWSER] URL if set. Otherwise it depends on the operating mode:
+#   companion  Companion's emulator chooser (other views via OSC: /showplaypi/companion/…)
+#   ontime     the Ontime view from [ONTIME] VIEW (e.g. timer)
+#   others     the local setup page
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 RUNTIME_URL_FILE="/run/showplaypi/runtime-url"
 DEFAULT_URL="file:///home/admin/kiosk/setup.html"
+COMPANION_URL="http://127.0.0.1:8000"
+ONTIME_URL="http://127.0.0.1:4001"
 
 validate_url() {
     case "$1" in
@@ -15,17 +26,11 @@ validate_url() {
     esac
 }
 
-if [ -s "$RUNTIME_URL_FILE" ]; then
-    RUNTIME_URL="$(head -n 1 "$RUNTIME_URL_FILE" | tr -d '\r\n')"
+ini_get() {
+    local section="$1"
+    local key="$2"
 
-    if validate_url "$RUNTIME_URL"; then
-        printf '%s\n' "$RUNTIME_URL"
-        exit 0
-    fi
-fi
-
-CONFIG_URL="$(
-    awk '
+    awk -v wanted_section="$section" -v wanted_key="$key" '
         {
             sub(/\r$/, "")
         }
@@ -42,7 +47,7 @@ CONFIG_URL="$(
             next
         }
 
-        section == "BROWSER" {
+        section == wanted_section {
             position = index($0, "=")
 
             if (position == 0) {
@@ -55,18 +60,56 @@ CONFIG_URL="$(
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
 
-            if (key == "URL") {
+            if (key == wanted_key) {
                 print value
                 exit
             }
         }
-    ' "$CONFIG"
-)"
+    ' "$CONFIG" 2>/dev/null
+}
+
+# Start page of Companion and Ontime mode when no own URL is configured
+mode_url() {
+    local view
+
+    case "$(/usr/local/bin/showplaypi-mode)" in
+        companion)
+            printf '%s/emulators\n' "$COMPANION_URL"
+            ;;
+        ontime)
+            view="$(ini_get ONTIME VIEW)"
+            # A view name like "timer", optionally with the options of the view's settings:
+            # "backstage?stopCycle=true&extra-info=0-Custom+data". Anything unusual falls back to the timer.
+            if [[ $view =~ ^([A-Za-z0-9_-]+)\?([^[:space:]]+)$ ]]; then
+                printf '%s/%s/?%s\n' "$ONTIME_URL" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+            else
+                [[ $view =~ ^[A-Za-z0-9_-]+$ ]] || view="timer"
+                printf '%s/%s\n' "$ONTIME_URL" "$view"
+            fi
+            ;;
+        *)
+            printf '%s\n' "$DEFAULT_URL"
+            ;;
+    esac
+}
+
+if [ "${1:-}" != "--home" ] && [ -s "$RUNTIME_URL_FILE" ]; then
+    RUNTIME_URL="$(head -n 1 "$RUNTIME_URL_FILE" | tr -d '\r\n')"
+
+    if validate_url "$RUNTIME_URL"; then
+        printf '%s\n' "$RUNTIME_URL"
+        exit 0
+    fi
+fi
+
+CONFIG_URL="$(ini_get BROWSER URL)"
+# Older configurators always wrote the setup page: that means "no own page" as well
+[ "$CONFIG_URL" = "$DEFAULT_URL" ] && CONFIG_URL=""
 
 # ASCII form of the URL (umlauts in host or path, spaces, Windows character set from the configurator)
 if [ -n "$CONFIG_URL" ] &&
    NORMALIZED_URL="$(/usr/local/bin/showplaypi-normalize-url "$CONFIG_URL" 2>/dev/null)"; then
     printf '%s\n' "$NORMALIZED_URL"
 else
-    printf '%s\n' "$DEFAULT_URL"
+    mode_url
 fi

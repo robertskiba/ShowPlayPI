@@ -2,10 +2,14 @@
 Description=Apply ShowPlayPI system configuration
 After=local-fs.target
 Before=showplaypi-web-watchdog.service
+# The device name is set before it is announced (Bonjour, network share, Windows network view)
+Before=avahi-daemon.service smbd.service wsdd2.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/showplaypi-system-config
+# Hide the system files on the boot partition (updates add new, visible files)
+ExecStartPost=-/usr/local/sbin/showplaypi-hide-boot-files
 RemainAfterExit=yes
 
 [Install]

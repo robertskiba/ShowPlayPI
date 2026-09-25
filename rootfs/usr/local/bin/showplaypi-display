@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 DEFAULT_RESOLUTION="1920x1080"
 DEFAULT_REFRESH="60"
 

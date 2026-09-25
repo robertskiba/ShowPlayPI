@@ -62,10 +62,11 @@ the distribution – a complete machine-readable copy of the corresponding sourc
 the image that is licensed under the GPL, LGPL or a similar license requiring source distribution.
 Contact: support@konftools.com
 
-## Container images (future modes)
+## Companion and Ontime
 
-The planned Ontime and Companion modes will include these programs as container images from their
-official publishers (updated at boot when online). They remain under their own licenses:
+The Companion and Ontime modes include these programs in their official builds: Companion as the ARM64 Linux
+package from Bitfocus (in `/opt/companion`), Ontime as the container image from its publisher (run with
+Podman). They remain under their own licenses:
 
 | Component | License |
 |---|---|

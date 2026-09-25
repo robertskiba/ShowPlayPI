@@ -1,0 +1,6 @@
+[Unit]
+Description=ShowPlayPI: restart to apply the configuration
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/showplaypi-media restart-request

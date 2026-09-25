@@ -1,0 +1,25 @@
+#!/bin/bash
+# Boot splash: shows the startup image from the moment the display driver takes over until the kiosk starts.
+#
+# The kernel draws its logo (fullscreen_logo) only on the early firmware framebuffer. When the vc4 display
+# driver takes over a few seconds into the boot, the screen would otherwise stay black with a blinking
+# cursor until X starts. Not used when boot messages are shown ([SYSTEM] BOOT_MESSAGES=yes).
+
+FB_NAME="/sys/class/graphics/fb0/name"
+DISPLAY_DRIVER="vc4drmfb"
+
+display_ready() {
+    [ "$(cat "$FB_NAME" 2>/dev/null)" = "$DISPLAY_DRIVER" ]
+}
+
+for attempt in $(seq 1 60); do
+    display_ready && break
+    sleep 0.5
+done
+display_ready || exit 0
+
+# Hide the console cursor so it does not blink over the image
+echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
+setterm --cursor off --blank 0 > /dev/tty1 2>/dev/null || true
+
+exec /usr/local/bin/showplaypi-status-screen --splash

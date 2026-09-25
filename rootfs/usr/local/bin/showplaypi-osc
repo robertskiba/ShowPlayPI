@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
+import json
 import logging
 import os
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -13,7 +15,7 @@ sys.path.insert(0, "/usr/local/lib/showplaypi")
 from showplaypi_url import decode_text, normalize_url  # noqa: E402
 
 OSC_HOST = "0.0.0.0"
-OSC_PORT = 9000
+OSC_PORT = 23878
 
 DISPLAY = ":0"
 XAUTHORITY = "/home/admin/.Xauthority"
@@ -25,8 +27,18 @@ IDLE_TIMEOUT_FILE = RUNTIME_DIRECTORY / "idle-timeout"
 # Time of our own simulated key presses, so showplaypi-idle does not mistake them for user input
 SYNTHETIC_INPUT_FILE = RUNTIME_DIRECTORY / "synthetic-input"
 
-CONFIG_FILE = Path("/boot/firmware/showplaypi.ini")
+CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
 DEFAULT_URL = "file:///home/admin/kiosk/setup.html"
+
+# Video mode: commands go to showplaypi-video, which writes its state to a JSON file
+VIDEO_SOCKET = RUNTIME_DIRECTORY / "video.sock"
+VIDEO_STATUS_FILE = RUNTIME_DIRECTORY / "video-status.json"
+BROWSER_MODES = ("browser", "ontime", "companion")
+# Companion mode: Companion runs on the device (showplaypi-companion.service)
+COMPANION_URL = "http://127.0.0.1:8000"
+COMPANION_CONFIG = Path("/home/admin/companion")
+# Ontime mode: the Ontime server runs on the device (showplaypi-ontime.service)
+ONTIME_URL = "http://127.0.0.1:4001"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,34 +131,16 @@ def valid_url(value):
 
 
 def configured_url():
-    section = ""
+    # The start page from showplaypi.ini – in Companion and Ontime mode their view if no own URL is set
+    result = subprocess.run(
+        ["/usr/local/bin/showplaypi-current-url", "--home"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    url = result.stdout.strip()
 
-    try:
-        for raw_line in CONFIG_FILE.read_text(
-            encoding="utf-8",
-            errors="replace",
-        ).splitlines():
-            line = raw_line.strip()
-
-            if not line or line.startswith(("#", ";")):
-                continue
-
-            if line.startswith("[") and line.endswith("]"):
-                section = line[1:-1].strip()
-                continue
-
-            if section == "BROWSER" and "=" in line:
-                key, value = line.split("=", 1)
-
-                if key.strip() == "URL":
-                    value = value.strip()
-
-                    if valid_url(value):
-                        return value
-    except OSError as error:
-        log.error("Could not read showplaypi.ini: %s", error)
-
-    return DEFAULT_URL
+    return url if valid_url(url) else DEFAULT_URL
 
 
 def chromium_window():
@@ -224,16 +218,20 @@ def open_url(url):
 
 def set_idle_timeout(arguments):
     # Session-only: overrides [BROWSER] IDLE_TIMEOUT until the next reboot.
+    # All times in OSC are milliseconds; the idle service works in whole seconds.
     if len(arguments) != 1 or isinstance(arguments[0], bool):
-        raise ValueError("/showplaypi/idle requires one number argument (seconds)")
+        raise ValueError("/showplaypi/browser/idle requires one number argument (milliseconds)")
 
     try:
-        seconds = int(float(arguments[0]))
+        milliseconds = int(float(arguments[0]))
     except (TypeError, ValueError):
-        raise ValueError("/showplaypi/idle requires one number argument (seconds)")
+        raise ValueError("/showplaypi/browser/idle requires one number argument (milliseconds)")
 
-    if seconds < 0 or seconds > 86400:
-        raise ValueError("/showplaypi/idle accepts 0 (off) to 86400 seconds")
+    if milliseconds < 0 or milliseconds > 86_400_000:
+        raise ValueError("/showplaypi/browser/idle accepts 0 (off) to 86400000 milliseconds")
+
+    # Rounded up, so that a short time never turns the idle timeout off
+    seconds = (milliseconds + 999) // 1000
 
     RUNTIME_DIRECTORY.mkdir(parents=True, exist_ok=True)
     temporary_file = IDLE_TIMEOUT_FILE.with_suffix(".new")
@@ -384,27 +382,261 @@ def blackout_argument(arguments):
         "/showplaypi/blackout accepts only 1/0, true/false or on/off"
     )
 
-def handle_message(address, arguments, source):
+def active_mode():
+    # The mode only changes with a restart, so it is read once
+    result = subprocess.run(
+        ["/usr/local/bin/showplaypi-mode"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout.strip() or "browser"
+
+
+def send_to_video(command, arguments):
+    message = json.dumps({"command": command, "args": arguments}).encode("utf-8")
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as video_socket:
+        try:
+            video_socket.sendto(message, str(VIDEO_SOCKET))
+        except OSError as error:
+            raise RuntimeError(f"Video player is not running: {error}")
+
+
+def osc_string(text):
+    data = text.encode("utf-8") + b"\0"
+    return data + b"\0" * (-len(data) % 4)
+
+
+def reply(osc_socket, destination, address, text):
+    message = osc_string(address) + osc_string(",s") + osc_string(text)
+    osc_socket.sendto(message, destination)
+
+
+def reply_video_state(osc_socket, destination, command):
+    # The player writes its state right after the command; give it a moment
+    time.sleep(0.2)
+
+    try:
+        status = json.loads(VIDEO_STATUS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RuntimeError(f"No video player state available: {error}")
+
+    if command == "list":
+        reply(osc_socket, destination, "/showplaypi/video/files",
+              json.dumps({"playlists": status.get("playlists", [])}))
+    else:
+        status.pop("playlists", None)
+        reply(osc_socket, destination, "/showplaypi/video/status", json.dumps(status))
+
+
+def whole_number(value, name, minimum, maximum):
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a number")
+
+    if isinstance(value, bool) or number < minimum or number > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+
+    return number
+
+
+def companion_emulators():
+    # Emulators as Companion stores them (table "surfaces", IDs "emulator:<id>"), read-only – newest
+    # configuration version first (Companion keeps one folder per version, e.g. v5.0)
+    databases = sorted(
+        COMPANION_CONFIG.glob("v*/db.sqlite"),
+        key=lambda path: [int(part) if part.isdigit() else 0 for part in path.parent.name[1:].split(".")],
+        reverse=True,
+    )
+
+    if not databases:
+        return []
+
+    connection = sqlite3.connect(f"file:{databases[0]}?mode=ro", uri=True, timeout=2)
+
+    try:
+        rows = connection.execute("SELECT id, value FROM surfaces WHERE id LIKE 'emulator:%'").fetchall()
+    finally:
+        connection.close()
+
+    emulators = []
+
+    for surface_id, value in rows:
+        try:
+            surface = json.loads(value)
+        except (TypeError, ValueError):
+            surface = {}
+
+        grid = surface.get("gridSize") or {}
+        emulators.append({
+            "id": surface_id.split(":", 1)[1],
+            "name": surface.get("name") or surface_id.split(":", 1)[1],
+            "columns": grid.get("columns"),
+            "rows": grid.get("rows"),
+        })
+
+    return sorted(emulators, key=lambda emulator: emulator["name"].casefold())
+
+
+def companion_command(command, arguments, source, osc_socket):
+    # Views of Companion in the kiosk browser; they become the page of the current session.
+    # Pressing buttons etc. goes to Companion's own OSC/HTTP interfaces (docs/OSC.md).
+    if command == "emulators":
+        # The list for a dropdown in the controller: reply to the sender (optional reply port)
+        destination = source
+
+        if arguments:
+            destination = (source[0], whole_number(arguments[0], "port", 1, 65535))
+
+        reply(osc_socket, destination, "/showplaypi/companion/emulators",
+              json.dumps({"emulators": companion_emulators()}))
+
+    elif command == "emulator":
+        if not arguments:
+            open_url(f"{COMPANION_URL}/emulators")
+        else:
+            wanted = str(arguments[0]).strip()
+            # The ID, or the name as shown in Companion (case-insensitive)
+            match = next(
+                (emulator["id"] for emulator in companion_emulators()
+                 if wanted == emulator["id"] or wanted.casefold() == emulator["name"].casefold()),
+                wanted,
+            )
+
+            if not match or not all(c.isalnum() or c in "-_" for c in match):
+                raise ValueError(f"/showplaypi/companion/emulator: unknown emulator {wanted!r}")
+
+            open_url(f"{COMPANION_URL}/emulator/{match}")
+
+    elif command == "tablet":
+        # [pages] [columns] [rows]: e.g. 3 4 2 = page 3 with 4 x 2 buttons
+        query = ["noconfigure=1", "nofullscreen=1"]
+
+        if len(arguments) >= 1:
+            pages = str(arguments[0]).replace(" ", "")
+
+            if isinstance(arguments[0], float):
+                pages = str(int(arguments[0]))
+
+            if not pages or not all(part.isdigit() for part in pages.split(",")):
+                raise ValueError("/showplaypi/companion/tablet: pages as a number or a list like \"1,2\"")
+
+            query.append(f"pages={pages}")
+
+        if len(arguments) >= 2:
+            columns = whole_number(arguments[1], "columns", 1, 32)
+            query += ["min_col=0", f"max_col={columns - 1}"]
+
+        if len(arguments) >= 3:
+            rows = whole_number(arguments[2], "rows", 1, 32)
+            query += ["min_row=0", f"max_row={rows - 1}"]
+
+        open_url(f"{COMPANION_URL}/tablet?{'&'.join(query)}")
+
+    elif command == "restart":
+        subprocess.run(
+            ["sudo", "-n", "systemctl", "restart", "showplaypi-companion.service"],
+            check=True,
+        )
+        log.info("Companion restart triggered")
+
+    elif command == "backup":
+        log.info("Ignored /showplaypi/companion/backup: not implemented yet")
+
+    else:
+        raise ValueError(f"Unknown Companion command: {command}")
+
+
+def ontime_command(command, arguments):
+    # /showplaypi/ontime/view <view> [parameters]: an Ontime view with the options of its settings panel,
+    # e.g. "backstage" "stopCycle=true&extra-info=0-Custom+data". The parameters are passed on unchanged,
+    # so every setting of Ontime's views can be sent; the view becomes the page of the current session.
+    if command != "view":
+        raise ValueError(f"Unknown Ontime command: {command}")
+
+    if not arguments or not isinstance(arguments[0], str):
+        raise ValueError("/showplaypi/ontime/view requires the view name, e.g. \"timer\"")
+
+    view = arguments[0].strip().strip("/")
+
+    if not view or not all(c.isalnum() or c in "-_" for c in view):
+        raise ValueError(f"/showplaypi/ontime/view: invalid view name {view!r}")
+
+    # Parameters as one string ("a=1&b=2") or as several strings ("a=1", "b=2")
+    parameters = "&".join(str(argument).strip().lstrip("?") for argument in arguments[1:] if str(argument).strip())
+
+    if parameters:
+        open_url(f"{ONTIME_URL}/{view}/?{parameters}")
+    else:
+        open_url(f"{ONTIME_URL}/{view}")
+
+
+def handle_message(address, arguments, source, mode, osc_socket):
     log.info("Received %s %s from %s:%s", address, arguments, *source)
 
-    if address == "/showplaypi/url":
+    # Commands of an inactive mode are ignored (docs/OSC.md, naming scheme)
+    if address.startswith("/showplaypi/browser/") and mode not in BROWSER_MODES:
+        log.info("Ignored %s: no browser in %s mode", address, mode)
+        return
+
+    if address.startswith("/showplaypi/video/"):
+        if mode != "video":
+            log.info("Ignored %s: not in video mode (%s mode)", address, mode)
+            return
+
+        command = address[len("/showplaypi/video/"):]
+        send_to_video(command, arguments)
+
+        if command in ("list", "status"):
+            reply_video_state(osc_socket, source, command)
+
+        return
+
+    if address.startswith("/showplaypi/companion/"):
+        if mode != "companion":
+            log.info("Ignored %s: not in Companion mode (%s mode)", address, mode)
+            return
+
+        companion_command(address[len("/showplaypi/companion/"):], arguments, source, osc_socket)
+        return
+
+    if address.startswith("/showplaypi/ontime/"):
+        if mode != "ontime":
+            log.info("Ignored %s: not in Ontime mode (%s mode)", address, mode)
+            return
+
+        ontime_command(address[len("/showplaypi/ontime/"):], arguments)
+        return
+
+    if address.startswith("/showplaypi/audio/"):
+        log.info("Ignored %s: not implemented yet", address)
+        return
+
+    if address == "/showplaypi/blackout" and mode == "video":
+        # The player fades its own picture (optional second argument: fade in milliseconds)
+        send_to_video("blackout", [blackout_argument(arguments[:1]), *arguments[1:2]])
+        return
+
+    if address == "/showplaypi/browser/url":
         if len(arguments) != 1 or not isinstance(arguments[0], str):
-            raise ValueError("/showplaypi/url requires one string argument")
+            raise ValueError("/showplaypi/browser/url requires one string argument")
 
         open_url(arguments[0])
 
-    elif address == "/showplaypi/idle":
+    elif address == "/showplaypi/browser/idle":
         set_idle_timeout(arguments)
 
-    elif address == "/showplaypi/refresh":
+    elif address == "/showplaypi/browser/refresh":
         refresh_browser()
 
-    elif address == "/showplaypi/home":
+    elif address == "/showplaypi/browser/home":
         return_home()
 
-    elif address == "/showplaypi/restart":
+    elif address == "/showplaypi/browser/restart":
         if arguments:
-            raise ValueError("/showplaypi/restart does not accept arguments")
+            raise ValueError("/showplaypi/browser/restart does not accept arguments")
 
         restart_chromium()
 
@@ -425,14 +657,15 @@ def main():
     osc_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     osc_socket.bind((OSC_HOST, OSC_PORT))
 
-    log.info("Listening for OSC messages on UDP port %s", OSC_PORT)
+    mode = active_mode()
+    log.info("Listening for OSC messages on UDP port %s (%s mode)", OSC_PORT, mode)
 
     while True:
         data, source = osc_socket.recvfrom(65535)
 
         try:
             address, arguments = parse_osc_message(data)
-            handle_message(address, arguments, source)
+            handle_message(address, arguments, source, mode, osc_socket)
         except Exception as error:
             log.error("OSC message rejected: %s", error)
 

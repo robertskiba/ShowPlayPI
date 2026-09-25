@@ -11,11 +11,11 @@ Plans: [ROADMAP.md](../ROADMAP.md), OSC commands: [OSC.md](OSC.md), changes: [CH
 In Git Bash (or WSL) inside the repository:
 
 ```bash
-./deploy.sh -n                 # dry run: what would change?
-./deploy.sh                    # overlay to admin@showplaypi.local, restart affected services
+./deploy.sh -n 192.168.20.50   # dry run: what would change?
+./deploy.sh showplaypi-e84042.local  # overlay to that Pi (device name or IP), restart affected services
 ./deploy.sh 192.168.20.50      # another Pi
-./deploy.sh --boot             # also config.txt, cmdline.txt, content/ …
-./deploy.sh --boot --ini       # … and overwrite showplaypi.ini
+./deploy.sh --boot <target>    # also config.txt, cmdline.txt, README.txt …
+./deploy.sh --boot --ini <target>  # … and overwrite showplaypi.ini
 ```
 
 There is a single password prompt (`admin`). The script lists every changed file, restarts the affected
@@ -38,6 +38,19 @@ Without a matching tag the file name contains the Git revision
 (e.g. `ShowPlayPI-1.0.0-beta.2-v1.0.0-beta.1-3-g1a2b3c4-dirty.img.xz` – 3 commits after the tag, with
 uncommitted changes).
 
+### Raspberry Pi Imager list
+
+The build also writes `ShowPlayPI-<version>.rpi-imager.json` – an OS list in the format of
+[Raspberry Pi Imager](https://github.com/raspberrypi/rpi-imager/tree/main/doc) with sizes, SHA-256
+checksums (compressed and uncompressed), the supported devices (Pi 5, Pi 4) and the icon
+`imager/showplaypi-icon.svg`. `init_format` is `none`, so the Imager does not offer its OS customisation.
+For an existing image: `bash build/imager-json.sh build/out/ShowPlayPI-<version>.img.xz`.
+
+The URLs point to the GitHub release asset `v<version>` and to the icon on the branch `main`; both only
+work once the repository is public. Other locations: set `IMAGER_IMAGE_URL` and `IMAGER_ICON_URL`.
+The list itself needs a permanent public address (it is updated with every release). Test it with
+`rpi-imager --repo <url of the list>`.
+
 `build/compare.sh old.img new.img` compares two images (packages, units, overlay, boot partition, user).
 
 ### Creating an image from a running Pi
@@ -49,7 +62,7 @@ machine ID, logs, caches, shell history and the browser profile, then shuts the 
 
 ```
 rootfs/        files copied 1:1 into the root file system (overlay on top of the base image)
-bootfs/        files for the boot partition /boot/firmware (config.txt, cmdline.txt, showplaypi.ini, content/)
+bootfs/        files for the boot partition /boot/firmware (config.txt, cmdline.txt, showplaypi.ini template)
 packages.txt   additionally installed packages
 services.txt   systemd units to enable/disable
 deploy.sh      push the overlay to a running Pi over SSH
@@ -62,7 +75,22 @@ meta/
 configurator/  Windows configurator (AutoIt source + icon). build-configurator.cmd compiles the EXE
                into rootfs/usr/share/showplaypi/usb/ – from there it is copied onto the USB drive.
 docs/          documentation
+imager/        icon for the Raspberry Pi Imager list
 ```
+
+## On the device
+
+```
+/boot/firmware          partition 1, FAT: firmware, kernel, config.txt, cmdline.txt, showplaypi.ini (copy)
+/                       partition 2, ext4: the system (12 GiB after the first start)
+/media/showplaypi       partition 3, exFAT "SHOWPLAYPI": showplaypi.ini (copy), configurator, HTML, VIDEO,
+                        AUDIO, PRESETS – also the USB drive and the network share
+/etc/showplaypi/showplaypi.ini   the active configuration, read by all ShowPlayPI services
+```
+
+`showplaypi-media` creates partition 3 on the first start, mounts it, restores missing files and reconciles
+the three copies of `showplaypi.ini` (the copy changed since the last start wins). `showplaypi-usb-drive`
+hands the partition to a computer connected via USB-C and takes it back afterwards; Samba pauses meanwhile.
 
 ## Versions
 

@@ -1,0 +1,4 @@
+# ShowPlayPI: USB control surfaces for Companion (Stream Deck, X-keys, Loupedeck, Contour Shuttle, …).
+# Companion runs as the user admin (group plugdev) and needs read/write access to these HID devices.
+SUBSYSTEM=="hidraw", MODE="0660", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", MODE="0660", GROUP="plugdev"

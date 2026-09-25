@@ -22,7 +22,12 @@ changes=$(
         [[ -z "$path" || "$path" == \#* ]] && continue
         [[ -e $path ]] || continue
         echo "REMOVED $path"
-        [[ -n $DRY_RUN ]] || rm -f "$path"
+        [[ -n $DRY_RUN ]] && continue
+        # Units are stopped and disabled before their file disappears
+        if [[ $path == /etc/systemd/system/*.service || $path == /etc/systemd/system/*.timer ]]; then
+            systemctl disable --now "$(basename "$path")" >/dev/null 2>&1 || true
+        fi
+        rm -f "$path"
     done < "$PKG/meta/removed-files.txt"
 
     bash "$S/install-overlay.sh" "$PKG/rootfs" / "$PKG/meta/permissions.txt" $DRY_RUN
@@ -61,6 +66,15 @@ if changed '/etc/tmpfiles\.d/'; then
     systemd-tmpfiles --create
 fi
 
+if changed '/etc/systemd/journald\.conf\.d/'; then
+    systemctl restart systemd-journald
+fi
+
+if changed '/etc/udev/rules\.d/'; then
+    udevadm control --reload
+    udevadm trigger --subsystem-match=hidraw --subsystem-match=usb
+fi
+
 if changed 'splash-screen-hook|/usr/lib/firmware/logo\.tga'; then
     echo "Boot logo changed – regenerating initramfs ..."
     update-initramfs -u -k all >/dev/null
@@ -70,13 +84,22 @@ fi
 restart=()
 changed 'showplaypi-osc'                  && restart+=(showplaypi-osc.service)
 changed 'showplaypi-web-watchdog'         && restart+=(showplaypi-web-watchdog.service)
-changed 'showplaypi-(browser|display|current-url|kiosk)|\.xinitrc|/home/admin/kiosk/' \
+changed 'showplaypi-(browser|display|current-url|kiosk)|\.xinitrc|/home/admin/kiosk/|/etc/X11/' \
                                           && restart+=(showplaypi-kiosk.service showplaypi-vnc.service)
 changed 'showplaypi-vnc'                  && restart+=(showplaypi-vnc.service)
 changed 'showplaypi-idle'                 && restart+=(showplaypi-idle.service)
+changed 'showplaypi-mode'                 && restart+=(showplaypi-mode.service)
+changed 'showplaypi-video'                && restart+=(showplaypi-video.service)
+changed 'showplaypi-companion'            && restart+=(showplaypi-companion.service)
+changed 'showplaypi-(ontime|container-image)' && restart+=(showplaypi-ontime.service)
+changed 'showplaypi-timezone'             && restart+=(showplaypi-timezone.service)
+changed 'showplaypi-usb-config-mode'      && restart+=(showplaypi-usb-config-mode.service)
+changed 'showplaypi-usb-drive'            && restart+=(showplaypi-usb-drive.service)
+changed 'showplaypi-restart.path'        && restart+=(showplaypi-restart.path)
+changed 'showplaypi-data-hygiene.timer'   && restart+=(showplaypi-data-hygiene.timer)
 
 reboot_hint=""
-changed 'showplaypi-(usb-gadget|system-config|network-config)|/boot/firmware/|/etc/sudoers\.d/|splash|logo|ENABLED|DISABLED' \
+changed 'showplaypi-(usb-gadget|system-config|network-config|media)|/boot/firmware/|/etc/sudoers\.d/|/etc/pipewire/|/etc/wireplumber/|/var/lib/systemd/linger/|splash|logo|ENABLED|DISABLED' \
     && reboot_hint=yes
 
 if [[ ${#restart[@]} -gt 0 ]]; then

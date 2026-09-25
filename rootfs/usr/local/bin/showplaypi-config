@@ -1,6 +1,10 @@
 #!/bin/sh
+# Opens showplaypi.ini of the SHOWPLAYPI drive in an editor (the copy users also see over USB).
 
-sudo mcedit /boot/firmware/showplaypi.ini
+FILE="/media/showplaypi/showplaypi.ini"
+[ -f "$FILE" ] || FILE="/etc/showplaypi/showplaypi.ini"
+
+sudo mcedit "$FILE"
 
 echo
 echo "ShowPlayPI configuration saved."

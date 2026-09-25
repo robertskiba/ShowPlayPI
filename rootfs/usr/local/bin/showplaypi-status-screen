@@ -1,0 +1,185 @@
+#!/usr/bin/python3
+"""Draw a full-screen status message directly into the framebuffer (no X11 needed).
+
+Used by showplaypi-usb-config-mode for the USB configuration mode, and by showplaypi-splash for the
+startup image while the system boots.
+
+Usage: showplaypi-status-screen "<title>" "<line>" ["<line>" ...] [--notice "<text>"] [--warning "<text>"]
+                               [--footer "<text>"] [--output preview.png]
+       showplaypi-status-screen --splash
+
+The image is rendered with ImageMagick in the ShowPlayPI colours, sized to the framebuffer resolution,
+and converted to the framebuffer's pixel format (16-bit RGB565 or 32-bit XRGB8888).
+"""
+
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+FB_DEVICE = Path("/dev/fb0")
+FB_SYSFS = Path("/sys/class/graphics/fb0")
+# Startup image with the logo (1920x1080); its "System is starting…" line is covered with a background strip
+LOGO_IMAGE = Path("/home/admin/kiosk/showplaypi-startup.png")
+SPLASH_CACHE = Path("/var/cache/showplaypi")
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+BACKGROUND = "#3F444B"
+ACCENT = "#F7BB30"
+TEXT = "#FFFFFF"
+MUTED = "#E2E2E2"
+WARNING = "#FF6B5B"
+NOTICE = "#7BD88F"
+
+
+def framebuffer_geometry():
+    width, height = (int(v) for v in (FB_SYSFS / "virtual_size").read_text().strip().split(","))
+    bpp = int((FB_SYSFS / "bits_per_pixel").read_text().strip())
+    stride = int((FB_SYSFS / "stride").read_text().strip())
+    return width, height, bpp, stride
+
+
+def render_rgb(width, height, title, lines, notice, warning, footer):
+    """Raw 8-bit RGB pixels of the status screen."""
+    magick = shutil.which("magick") or shutil.which("convert")
+    if magick is None:
+        raise RuntimeError("ImageMagick is not installed")
+
+    unit = height / 1080
+
+    if LOGO_IMAGE.exists():
+        # Logo from the startup image; the text below it is covered by a background strip taken from
+        # the bottom of the same image, so colours match exactly
+        args = [magick, str(LOGO_IMAGE),
+                "(", str(LOGO_IMAGE), "-crop", "1920x200+0+880", "+repage", ")",
+                "-geometry", "+0+715", "-composite",
+                "-resize", f"{width}x{height}!", "-gravity", "north"]
+        y = int(715 * unit)
+    else:
+        args = [magick, "-size", f"{width}x{height}", f"xc:{BACKGROUND}", "-gravity", "north"]
+        y = int(height * 0.30)
+
+    def text(font, colour, size, value, spacing):
+        nonlocal y
+        args.extend(["-font", font, "-fill", colour, "-pointsize", str(int(size * unit)),
+                     "-annotate", f"+0+{y}", value])
+        y += int(spacing * unit)
+
+    text(FONT_BOLD, ACCENT, 56, title, 75)
+    for line in lines:
+        text(FONT, TEXT, 30, line, 44)
+    if notice or warning:
+        y += int(10 * unit)
+    if notice:
+        text(FONT_BOLD, NOTICE, 30, notice, 44)
+    if warning:
+        text(FONT_BOLD, WARNING, 30, warning, 44)
+    if footer:
+        args.extend(["-gravity", "south", "-font", FONT, "-fill", MUTED,
+                     "-pointsize", str(int(22 * unit)), "-annotate", f"+0+{int(28 * unit)}", footer])
+
+    args.extend(["-depth", "8", "rgb:-"])
+    return subprocess.run(args, check=True, capture_output=True).stdout
+
+
+def convert_pixels(rgb, bpp):
+    """Convert interleaved RGB bytes to the framebuffer format (little endian)."""
+    red, green, blue = rgb[0::3], rgb[1::3], rgb[2::3]
+    count = len(red)
+
+    if bpp == 32:
+        out = bytearray(count * 4)
+        out[0::4], out[1::4], out[2::4] = blue, green, red
+        out[3::4] = b"\xff" * count
+        return out
+
+    if bpp == 16:
+        # RGB565: low byte = GGGBBBBB, high byte = RRRRRGGG – combined via big-integer OR (fast)
+        g_low = green.translate(bytes(((v >> 2) & 0x07) << 5 for v in range(256)))
+        b_low = blue.translate(bytes(v >> 3 for v in range(256)))
+        r_high = red.translate(bytes((v >> 3) << 3 for v in range(256)))
+        g_high = green.translate(bytes(v >> 5 for v in range(256)))
+        low = (int.from_bytes(g_low, "big") | int.from_bytes(b_low, "big")).to_bytes(count, "big")
+        high = (int.from_bytes(r_high, "big") | int.from_bytes(g_high, "big")).to_bytes(count, "big")
+        out = bytearray(count * 2)
+        out[0::2], out[1::2] = low, high
+        return out
+
+    raise RuntimeError(f"Unsupported framebuffer depth: {bpp} bit")
+
+
+def render_splash_rgb(width, height):
+    """The unchanged startup image, scaled to the framebuffer."""
+    magick = shutil.which("magick") or shutil.which("convert")
+    if magick is None:
+        raise RuntimeError("ImageMagick is not installed")
+    args = [magick, str(LOGO_IMAGE), "-resize", f"{width}x{height}!", "-depth", "8", "rgb:-"]
+    return subprocess.run(args, check=True, capture_output=True).stdout
+
+
+def framebuffer_pixels(rgb, width, bpp, stride):
+    pixels = convert_pixels(rgb, bpp)
+    row = width * bpp // 8
+    if stride != row:
+        padded = bytearray()
+        for offset in range(0, len(pixels), row):
+            padded += pixels[offset:offset + row] + bytes(stride - row)
+        pixels = padded
+    return pixels
+
+
+def splash_pixels(width, height, bpp, stride):
+    """Boot splash in framebuffer format; cached, so later starts draw it without ImageMagick."""
+    cache = SPLASH_CACHE / f"splash-{width}x{height}-{bpp}-{stride}.raw"
+    if cache.exists() and cache.stat().st_mtime >= LOGO_IMAGE.stat().st_mtime:
+        return cache.read_bytes()
+
+    pixels = framebuffer_pixels(render_splash_rgb(width, height), width, bpp, stride)
+    try:
+        SPLASH_CACHE.mkdir(parents=True, exist_ok=True)
+        temporary = cache.with_suffix(".tmp")
+        temporary.write_bytes(pixels)
+        temporary.replace(cache)
+    except OSError:
+        pass  # without a cache the next start simply renders again
+    return pixels
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("title", nargs="?", default="")
+    parser.add_argument("lines", nargs="*")
+    parser.add_argument("--notice", default="")
+    parser.add_argument("--warning", default="")
+    parser.add_argument("--footer", default="")
+    parser.add_argument("--splash", action="store_true", help="draw the startup image without any text")
+    parser.add_argument("--output", help="write a PNG preview (1920x1080) instead of drawing to the framebuffer")
+    options = parser.parse_args()
+
+    if options.output:
+        rgb = render_rgb(1920, 1080, options.title, options.lines, options.notice, options.warning,
+                         options.footer)
+        magick = shutil.which("magick") or shutil.which("convert")
+        subprocess.run([magick, "-size", "1920x1080", "-depth", "8", "rgb:-", options.output],
+                       input=rgb, check=True)
+        return
+
+    width, height, bpp, stride = framebuffer_geometry()
+    if options.splash:
+        pixels = splash_pixels(width, height, bpp, stride)
+    else:
+        pixels = framebuffer_pixels(render_rgb(width, height, options.title, options.lines, options.notice,
+                                               options.warning, options.footer), width, bpp, stride)
+
+    with FB_DEVICE.open("wb") as framebuffer:
+        framebuffer.write(pixels)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:  # the status screen must never break the USB configuration mode
+        print(f"showplaypi-status-screen: {error}", file=sys.stderr)
+        sys.exit(1)

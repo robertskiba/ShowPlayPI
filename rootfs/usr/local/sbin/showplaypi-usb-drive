@@ -1,0 +1,217 @@
+#!/usr/bin/python3
+"""USB configuration drive: hands the media partition to a computer connected via USB-C.
+
+The media partition can only be used by one side at a time. When a computer connects, ShowPlayPI unmounts it
+and offers it as the USB drive SHOWPLAYPI. When the computer ejects the drive or the cable is unplugged,
+ShowPlayPI mounts it again (checked, missing files restored). Changed settings take effect at the next start.
+
+While the computer uses the drive, everything it writes is on the SD card within about a second – a
+ShowPlayPI powered by the computer's USB port loses power the moment the cable is unplugged.
+"""
+
+import glob
+import os
+import signal
+import subprocess
+import sys
+import syslog
+import time
+from pathlib import Path
+
+LUN = Path("/sys/kernel/config/usb_gadget/showplaypi/functions/mass_storage.usb0/lun.0")
+UDC_STATES = "/sys/class/udc/*/state"
+UDC_DEBUG = Path("/sys/kernel/debug/usb")
+MEDIA_COMMAND = "/usr/local/sbin/showplaypi-media"
+# Seconds since boot when the computer's last changes were stored; read by showplaypi-usb-config-mode
+SAVED_FILE = Path("/run/showplaypi/usb-config-received")
+
+POLL_SECONDS = 0.2
+QUIET_SECONDS = 0.5
+RETRY_SECONDS = 5
+# Windows writes to a drive by itself right after mounting it (e.g. "System Volume Information");
+# such writes are stored as well, but not reported as "changes saved" on the status screen
+MOUNT_WRITES_SECONDS = 10
+
+# While a computer writes, dirty data goes to the SD card after 0.2 s instead of up to 30 s (Debian defaults)
+VM_FAST = {"dirty_expire_centisecs": "20", "dirty_writeback_centisecs": "10"}
+VM_NORMAL = {"dirty_expire_centisecs": "3000", "dirty_writeback_centisecs": "500"}
+
+
+def log(message):
+    syslog.syslog(message)
+    print(message, flush=True)
+
+
+def bus_idle(udc):
+    """No start-of-frame packets from a computer (suspend bit of the device status register).
+
+    The USB-C socket of the Pi is also its power input, so the controller cannot see the cable being
+    unplugged when the Pi runs on PoE – the connection state stays "configured"; only the idle bus shows it.
+    """
+    try:
+        for line in (UDC_DEBUG / udc / "regdump").read_text().splitlines():
+            fields = line.split()
+            if fields[:2] == ["DSTS", "="]:
+                return int(fields[2], 16) & 1 == 1
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
+def computer_connected():
+    for state_file in glob.glob(UDC_STATES):
+        try:
+            if Path(state_file).read_text().strip() == "configured" and not bus_idle(Path(state_file).parent.name):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def offered_device():
+    try:
+        return (LUN / "file").read_text().strip()
+    except OSError:
+        return ""
+
+
+def media_device():
+    result = subprocess.run([MEDIA_COMMAND, "device"], capture_output=True, text=True, check=False)
+    return result.stdout.strip()
+
+
+def sectors_written(device):
+    """Sectors written to the partition so far (field 7 of the block device statistics)."""
+    try:
+        return int(Path(f"/sys/class/block/{Path(device).name}/stat").read_text().split()[6])
+    except (OSError, IndexError, ValueError):
+        return 0
+
+
+def set_vm(settings):
+    for name, value in settings.items():
+        (Path("/proc/sys/vm") / name).write_text(value)
+
+
+def flush(device):
+    try:
+        descriptor = os.open(device, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+class UsbDrive:
+    def __init__(self):
+        # Adopt a drive that is already offered (the service was restarted)
+        self.device = offered_device()
+        self.ejected_by_computer = False
+        self.last_written = 0
+        self.changed_at = None
+        self.next_attempt = 0.0
+        self.offered_at = 0.0
+        self.burst_started = None
+
+    @property
+    def offered(self):
+        return bool(self.device)
+
+    def offer(self):
+        device = media_device()
+        if not device or time.monotonic() < self.next_attempt:
+            return
+        if subprocess.run([MEDIA_COMMAND, "release"], check=False).returncode != 0:
+            log("The media partition is in use and cannot be handed to the computer yet – retrying.")
+            self.next_attempt = time.monotonic() + RETRY_SECONDS
+            return
+
+        try:
+            (LUN / "file").write_text(device)
+        except OSError as error:
+            log(f"Could not offer the drive: {error}")
+            subprocess.run([MEDIA_COMMAND, "attach"], check=False)
+            self.next_attempt = time.monotonic() + RETRY_SECONDS
+            return
+        set_vm(VM_FAST)
+        self.device = device
+        self.last_written = sectors_written(device)
+        self.changed_at = None
+        self.offered_at = time.monotonic()
+        log("Computer connected – media partition offered as USB drive.")
+
+    def take_back(self, reason):
+        if offered_device():
+            forced = LUN / "forced_eject"
+            try:
+                if forced.exists():
+                    forced.write_text("1")
+                else:
+                    (LUN / "file").write_text("")
+            except OSError as error:
+                log(f"Could not take the drive back from the computer: {error}")
+                return
+        flush(self.device)
+        self.device = ""
+
+        set_vm(VM_NORMAL)
+
+        subprocess.run([MEDIA_COMMAND, "attach"], check=False)
+        log(f"{reason} – media partition mounted again.")
+
+    def watch_writes(self):
+        written = sectors_written(self.device)
+        if written != self.last_written:
+            self.last_written = written
+            if self.changed_at is None:
+                self.burst_started = time.monotonic()
+            self.changed_at = time.monotonic()
+        elif self.changed_at is not None and time.monotonic() - self.changed_at >= QUIET_SECONDS:
+            self.changed_at = None
+            flush(self.device)
+            if self.burst_started - self.offered_at < MOUNT_WRITES_SECONDS:
+                return
+            # Seconds since boot, not the time of day: without network the clock of the Pi is not set
+            try:
+                SAVED_FILE.write_text(f"{time.clock_gettime(time.CLOCK_BOOTTIME):.0f}\n")
+            except OSError:
+                pass
+
+    def step(self):
+        connected = computer_connected()
+        if not connected:
+            self.ejected_by_computer = False
+
+        if self.offered:
+            if not connected:
+                self.take_back("USB cable unplugged")
+            elif not offered_device():
+                # The computer ejected the drive – not offered again until it reconnects
+                self.ejected_by_computer = True
+                self.take_back("Drive ejected on the computer")
+            else:
+                self.watch_writes()
+        elif connected and not self.ejected_by_computer:
+            self.offer()
+
+
+def main():
+    syslog.openlog("showplaypi-usb-drive")
+    drive = UsbDrive()
+
+    def stop(_signal, _frame):
+        if drive.offered:
+            drive.take_back("Shutting down")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+
+    while True:
+        drive.step()
+        time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    main()

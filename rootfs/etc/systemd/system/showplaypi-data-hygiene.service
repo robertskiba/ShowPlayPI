@@ -1,0 +1,7 @@
+[Unit]
+Description=ShowPlayPI browser data hygiene (regular cache cleanup)
+
+[Service]
+Type=oneshot
+User=admin
+ExecStart=/usr/local/bin/showplaypi-data-hygiene timer

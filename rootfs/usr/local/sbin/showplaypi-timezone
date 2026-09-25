@@ -1,0 +1,83 @@
+#!/bin/bash
+# [SYSTEM] TIMEZONE=auto: detects the time zone from the public IP address once the device is online.
+#
+# Asks a free GeoIP service (ip-api.com, fallback ipapi.co) – the device's public IP address is sent to it.
+# The result is kept in /var/lib/showplaypi/timezone-detected, so the next start (also offline) begins with
+# it right away (showplaypi-system-config). A time zone set in showplaypi.ini is never overridden.
+
+CONFIG="/etc/showplaypi/showplaypi.ini"
+DETECTED_FILE="/var/lib/showplaypi/timezone-detected"
+ATTEMPTS=18
+RETRY_SECONDS=10
+
+log_message() {
+    # Runs as a systemd service: the output goes to the journal
+    echo "$*"
+}
+
+ini_get() {
+    awk -v wanted_section="$1" -v wanted_key="$2" '
+        { sub(/\r$/, "") }
+        /^[[:space:]]*[#;]/ { next }
+        /^[[:space:]]*\[/ {
+            section = $0
+            gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "", section)
+            next
+        }
+        section == wanted_section {
+            position = index($0, "=")
+            if (position == 0) next
+            key = substr($0, 1, position - 1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+            if (key == wanted_key) {
+                value = substr($0, position + 1)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG" 2>/dev/null
+}
+
+valid_timezone() {
+    [[ $1 =~ ^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$ ]] && [ -f "/usr/share/zoneinfo/$1" ]
+}
+
+lookup() {
+    local answer
+
+    for url in "http://ip-api.com/line/?fields=timezone" "https://ipapi.co/timezone/"; do
+        answer="$(curl --fail --silent --show-error --max-time 5 "$url" 2>/dev/null | head -n 1 | tr -d '\r\n ')"
+        if valid_timezone "$answer"; then
+            echo "$answer"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+setting="$(ini_get SYSTEM TIMEZONE)"
+if [ -n "$setting" ] && [ "${setting,,}" != "auto" ]; then
+    exit 0
+fi
+
+for attempt in $(seq 1 "$ATTEMPTS"); do
+    if timezone="$(lookup)"; then
+        mkdir -p "$(dirname "$DETECTED_FILE")"
+        echo "$timezone" > "$DETECTED_FILE"
+
+        if [ "$(timedatectl show --property=Timezone --value)" != "$timezone" ]; then
+            timedatectl set-timezone "$timezone"
+            log_message "Time zone detected from the internet connection: $timezone"
+            # The Ontime container reads the time zone when it starts
+            systemctl try-restart showplaypi-ontime.service
+        fi
+        exit 0
+    fi
+
+    sleep "$RETRY_SECONDS"
+done
+
+log_message "Time zone could not be detected (no internet?) – keeping $(timedatectl show --property=Timezone --value)."
+exit 0

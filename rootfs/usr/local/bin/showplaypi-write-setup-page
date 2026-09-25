@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 OUTPUT="/home/admin/kiosk/setup.html"
 RELEASE_FILE="/etc/showplaypi-release"
 
@@ -66,6 +66,7 @@ CONFIG_GATEWAY="$(ini_get NETWORK GATEWAY)"
 DNS1="$(ini_get NETWORK DNS1)"
 DNS2="$(ini_get NETWORK DNS2)"
 CONFIG_URL="$(ini_get BROWSER URL)"
+NETWORK_SHARE="$(ini_get NETWORK_SHARE ENABLED)"
 
 CURRENT_IPS="$(
     ip -4 -o addr show scope global 2>/dev/null |
@@ -142,6 +143,19 @@ NETWORK_SUMMARY_HTML="$(html_escape "$NETWORK_SUMMARY")"
 DNS_SUMMARY_HTML="$(html_escape "$DNS_SUMMARY")"
 TARGET_SUMMARY_HTML="$(html_escape "$TARGET_SUMMARY")"
 SSH_DIRECT_HTML="$(html_escape "$SSH_DIRECT")"
+
+# Network share panel: instructions, or a note that it is switched off
+case "${NETWORK_SHARE,,}" in
+    no|false|0|off)
+        SHARE_PANEL_HTML="<p>The network share is switched off.</p>
+            <p>To use it, set <code>ENABLED=yes</code> in section <code>[NETWORK_SHARE]</code> of <code>showplaypi.ini</code>.</p>"
+        ;;
+    *)
+        SHARE_PANEL_HTML="<p>Windows: open <code>\\\\$HOSTNAME_HTML.local\\SHOWPLAYPI</code> in File Explorer.</p>
+            <p>Mac: Finder › Go › Connect to Server: <code>smb://$HOSTNAME_HTML.local/SHOWPLAYPI</code></p>
+            <p>User name <code>admin</code>, password <code>admin</code>.</p>"
+        ;;
+esac
 VERSION_HTML="$(html_escape "$SHOWPLAYPI_VERSION")"
 
 
@@ -197,6 +211,17 @@ h1 {
     line-height: 1;
 }
 
+/* Product name as on the boot logo: bold, "PI" in the accent colour */
+.brand {
+    color: var(--text);
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    font-weight: bold;
+}
+
+.brand .pi {
+    color: var(--accent);
+}
+
 .subtitle {
     margin: 0;
     color: var(--muted);
@@ -214,7 +239,7 @@ h1 {
 }
 
 .setup-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
 }
 
 .panel {
@@ -281,6 +306,7 @@ footer {
 @media (max-width: 1150px) {
     body { align-items: flex-start; padding: 28px; }
     .status-grid { grid-template-columns: repeat(2, 1fr); }
+    .setup-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 780px) {
@@ -296,7 +322,7 @@ footer {
 <body>
 <main>
     <header>
-        <h1>Welcome to ShowPlayPI</h1>
+        <h1>Welcome to <span class="brand">ShowPlay<span class="pi">PI</span></span></h1>
         <p class="subtitle">Your device is running and ready to be configured.</p>
     </header>
 
@@ -329,21 +355,26 @@ footer {
     <section class="setup-grid">
         <article class="panel">
             <h2>Configure from Windows</h2>
-            <p>Connect ShowPlayPI to a Windows computer using USB-C. The ShowPlayPI configuration drive appears automatically.</p>
+            <p>Connect ShowPlayPI to a Windows computer using USB-C. The drive SHOWPLAYPI appears automatically.</p>
             <p>Run <code>ShowPlayPI-Configurator.exe</code>, or edit <code>showplaypi.ini</code> manually.</p>
         </article>
 
         <article class="panel">
             <h2>Configure using SSH</h2>
             <p>Direct connection: <code>$SSH_DIRECT_HTML</code> - default password: <code>admin</code></p>
-            <p>Edit <code>/boot/firmware/showplaypi.ini</code><br>(or open <code>showplaypi-config</code> to open it in an editor),<br> then restart ShowPlayPI with <code>sudo reboot</code>.</p>
+            <p>Run <code>showplaypi-config</code> to edit <code>showplaypi.ini</code> on the SHOWPLAYPI drive,<br> then restart ShowPlayPI with <code>sudo reboot</code>.</p>
+        </article>
+
+        <article class="panel">
+            <h2>Configure over the local network</h2>
+            $SHARE_PANEL_HTML
         </article>
     </section>
 
 <footer>
     <span>
         ShowPlayPI v$VERSION_HTML ·
-        Configuration file: <code>/boot/firmware/showplaypi.ini</code>
+        Configuration: <code>showplaypi.ini</code> on the SHOWPLAYPI drive
          · Updates and support: <code>https://konftools.com</code> · <code>support@konftools.com</code>
     </span>
     <span class="ready">Ready for configuration</span>

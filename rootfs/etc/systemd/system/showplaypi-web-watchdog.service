@@ -3,6 +3,10 @@ Description=ShowPlayPI Website Watchdog
 After=network-online.target
 Wants=network-online.target
 
+# Only in modes with the kiosk browser: browser, ontime, companion (see showplaypi-mode)
+After=showplaypi-mode.service
+ConditionPathExists=/run/showplaypi/mode-browser-ui
+
 [Service]
 Type=simple
 User=admin

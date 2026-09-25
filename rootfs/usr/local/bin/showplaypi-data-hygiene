@@ -1,0 +1,246 @@
+#!/usr/bin/python3
+"""Browser data hygiene – devices are often passed on without a reset.
+
+  showplaypi-data-hygiene prepare   before the browser starts (showplaypi-browser):
+      - the start page in showplaypi.ini changed: the whole browser profile is removed (cookies, logins,
+        local storage, form data, history) – a new customer or event starts with a clean browser.
+        Pages set via OSC do not count: they are switched on purpose during a show.
+      - caches, history and sessions are removed when the last cleanup is due (at least every 14 days)
+
+  showplaypi-data-hygiene timer     daily (showplaypi-data-hygiene.timer):
+      - cleanup due and the browser is running (devices running for weeks): the HTTP cache is cleared
+        through the browser's DevTools interface, without any visible interruption; the remaining files
+        follow at the next browser start
+      - cleanup due and the browser is not running: the files are removed right away
+"""
+
+import base64
+import fcntl
+import hashlib
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import syslog
+import time
+import urllib.request
+from pathlib import Path
+from urllib.parse import urlsplit
+
+CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
+HOME = Path("/home/admin")
+PROFILE_DIR = HOME / ".config/chromium-kiosk"
+CACHE_DIR = HOME / ".cache/chromium-kiosk"
+STATE_DIR = HOME / ".local/state/showplaypi"
+START_PAGE_STATE = STATE_DIR / "start-page.sha256"
+CLEANUP_STATE = STATE_DIR / "last-cache-cleanup"
+DEVTOOLS_LIST = "http://127.0.0.1:9222/json/list"
+
+# The daily timer runs up to a day late, so clean after 13 days to stay within 14
+CLEANUP_AFTER_SECONDS = 13 * 24 * 3600
+
+# Caches and traces of visited pages (cookies and logins stay – they are removed when the start page changes)
+CACHE_PATHS = [
+    CACHE_DIR,
+    HOME / ".cache/mesa_shader_cache",
+    PROFILE_DIR / "GPUPersistentCache",
+    PROFILE_DIR / "GrShaderCache",
+    PROFILE_DIR / "GraphiteDawnCache",
+    PROFILE_DIR / "ShaderCache",
+    PROFILE_DIR / "component_crx_cache",
+    PROFILE_DIR / "extensions_crx_cache",
+]
+PROFILE_CACHE_NAMES = [
+    "Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache", "blob_storage",
+    "Service Worker/CacheStorage", "Service Worker/ScriptCache",
+    "History", "History-journal", "Favicons", "Favicons-journal", "Top Sites", "Top Sites-journal",
+    "Shortcuts", "Shortcuts-journal", "Network Action Predictor", "Network Action Predictor-journal",
+    "Visited Links", "Sessions",
+]
+
+
+def log(message):
+    syslog.syslog(message)
+    print(message)
+
+
+def configured_start_page():
+    """[BROWSER] URL exactly as written in showplaypi.ini (empty = setup page)."""
+    section = ""
+    try:
+        lines = CONFIG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+        elif section == "BROWSER" and line.split("=", 1)[0].strip() == "URL":
+            return line.split("=", 1)[1].strip() if "=" in line else ""
+    return ""
+
+
+def browser_running():
+    return subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "chromium"],
+                          capture_output=True, check=False).returncode == 0
+
+
+def remove(path):
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def cleanup_due():
+    try:
+        return time.time() - CLEANUP_STATE.stat().st_mtime >= CLEANUP_AFTER_SECONDS
+    except FileNotFoundError:
+        return True
+
+
+def mark_cleaned():
+    CLEANUP_STATE.touch()
+
+
+def remove_cache_files():
+    for path in CACHE_PATHS:
+        remove(path)
+    for profile in [PROFILE_DIR / "Default", *PROFILE_DIR.glob("Profile *")]:
+        for name in PROFILE_CACHE_NAMES:
+            remove(profile / name)
+    mark_cleaned()
+    log("Browser caches, history and temporary browser files removed (regular cleanup).")
+
+
+def devtools_command(method):
+    """Sends one DevTools command to the page shown by the browser (minimal WebSocket client)."""
+    with urllib.request.urlopen(DEVTOOLS_LIST, timeout=3) as response:
+        targets = json.load(response)
+    address = next(target["webSocketDebuggerUrl"] for target in targets if target.get("type") == "page")
+    url = urlsplit(address)
+
+    with socket.create_connection((url.hostname, url.port), timeout=10) as connection:
+        key = base64.b64encode(os.urandom(16)).decode()
+        connection.sendall((f"GET {url.path} HTTP/1.1\r\nHost: {url.netloc}\r\nUpgrade: websocket\r\n"
+                            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+                            f"Sec-WebSocket-Version: 13\r\n\r\n").encode())
+        received = b""
+        while b"\r\n\r\n" not in received:
+            chunk = connection.recv(4096)
+            if not chunk:
+                raise ConnectionError("DevTools closed the connection")
+            received += chunk
+        header, received = received.split(b"\r\n\r\n", 1)
+        if b" 101 " not in header.split(b"\r\n", 1)[0]:
+            raise ConnectionError("DevTools refused the WebSocket connection")
+
+        # Client frames are masked text frames
+        payload = json.dumps({"id": 1, "method": method}).encode()
+        mask = os.urandom(4)
+        frame = bytearray([0x81])
+        if len(payload) < 126:
+            frame.append(0x80 | len(payload))
+        else:
+            frame.append(0x80 | 126)
+            frame += len(payload).to_bytes(2, "big")
+        frame += mask + bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+        connection.sendall(frame)
+
+        def read(count):
+            nonlocal received
+            while len(received) < count:
+                chunk = connection.recv(65536)
+                if not chunk:
+                    raise ConnectionError("DevTools closed the connection")
+                received += chunk
+            data, received = received[:count], received[count:]
+            return data
+
+        # Wait for the answer to our command (events of other domains are skipped)
+        while True:
+            first, second = read(2)
+            length = second & 0x7F
+            if length == 126:
+                length = int.from_bytes(read(2), "big")
+            elif length == 127:
+                length = int.from_bytes(read(8), "big")
+            message = read(length)
+            if first & 0x0F == 0x8:
+                raise ConnectionError("DevTools closed the connection")
+            if first & 0x0F == 0x1:
+                answer = json.loads(message)
+                if answer.get("id") == 1:
+                    if "error" in answer:
+                        raise RuntimeError(answer["error"].get("message", "DevTools error"))
+                    return answer.get("result", {})
+
+
+def prepare():
+    """Runs before Chromium starts – the profile is not in use."""
+    start_page = configured_start_page()
+    if start_page is not None:
+        fingerprint = hashlib.sha256(start_page.encode()).hexdigest()
+        try:
+            previous = START_PAGE_STATE.read_text().strip()
+        except FileNotFoundError:
+            previous = None
+        if previous is not None and previous != fingerprint:
+            remove(PROFILE_DIR)
+            remove(CACHE_DIR)
+            PROFILE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+            mark_cleaned()
+            log("Start page changed in the configuration – browser data removed "
+                "(cookies, logins, stored site data, history, caches).")
+        if previous != fingerprint:
+            START_PAGE_STATE.write_text(fingerprint + "\n")
+
+    if cleanup_due():
+        remove_cache_files()
+
+
+def timer():
+    if not cleanup_due():
+        return
+    if not browser_running():
+        remove_cache_files()
+        return
+    try:
+        devtools_command("Network.clearBrowserCache")
+    except (OSError, ValueError, StopIteration, KeyError, RuntimeError) as error:
+        log(f"Browser cache could not be cleared while running ({error}); retrying tomorrow.")
+        return
+    mark_cleaned()
+    log("Browser cache cleared while running (regular cleanup); other files follow at the next start.")
+
+
+def main():
+    syslog.openlog("showplaypi-data-hygiene")
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    action = sys.argv[1] if len(sys.argv) > 1 else ""
+    if action not in ("prepare", "timer"):
+        print("Usage: showplaypi-data-hygiene prepare|timer", file=sys.stderr)
+        sys.exit(2)
+
+    # The timer and a browser start never clean at the same time
+    with open(STATE_DIR / "lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if action == "prepare":
+            prepare()
+        else:
+            timer()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:  # hygiene must never keep the browser from starting
+        print(f"showplaypi-data-hygiene: {error}", file=sys.stderr)
+        sys.exit(1)

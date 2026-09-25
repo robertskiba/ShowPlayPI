@@ -5,13 +5,25 @@
 #pragma compile(FileVersion, 1.0.0.0)
 #pragma compile(OriginalFilename, ShowPlayPI-Configurator.exe)
 
+; A normal program in the taskbar – no AutoIt tray icon (with "Pause script" and "Exit")
+#NoTrayIcon
+
 #include <GUIConstantsEx.au3>
 #include <WindowsConstants.au3>
 #include <ComboConstants.au3>
 #include <EditConstants.au3>
 #include <MsgBoxConstants.au3>
+#include <FileConstants.au3>
+#include <Misc.au3>
+#include <UpDownConstants.au3>
 
 Opt("MustDeclareVars", 1)
+
+; Only one configurator at a time: a second start brings the open window to the front
+If _Singleton("ShowPlayPI-Configurator", 1) = 0 Then
+    WinActivate("ShowPlayPI Configurator")
+    Exit
+EndIf
 
 Global Const $g_sIniPath = @ScriptDir & "\showplaypi.ini"
 ; About page values: change these for future releases.
@@ -48,18 +60,39 @@ Global $g_idTab = GUICtrlCreateTab(18, 18, 664, 510)
 ; -----------------------------------------------------------------------------
 GUICtrlCreateTabItem("System")
 
-GUICtrlCreateLabel("Hostname", 45, 75, 180, 20)
-Global $g_idHostname = GUICtrlCreateInput(IniRead($g_sIniPath, "SYSTEM", "HOSTNAME", "showplaypi"), 245, 70, 390, 26)
+; ontime and companion show the browser for now (in preparation)
+GUICtrlCreateLabel("Operating mode", 45, 75, 180, 20)
+Global $g_idMode = GUICtrlCreateCombo("", 245, 70, 200, 26, $CBS_DROPDOWNLIST)
+GUICtrlSetData($g_idMode, "browser|video|ontime|companion", _ModeFromIni(IniRead($g_sIniPath, "SYSTEM", "MODE", "browser")))
+GUICtrlSetTip($g_idMode, "browser = web page (Browser tab), video = videos and images from the VIDEO folder (Video tab), " & _
+    "companion / ontime = Companion or Ontime runs on the device, the screen shows its view (Companion / Ontime tab). " & _
+    "Takes effect after a restart.")
 
-GUICtrlCreateLabel("Timezone", 45, 120, 180, 20)
-Global $g_sCurrentTimezone = IniRead($g_sIniPath, "SYSTEM", "TIMEZONE", "Europe/Berlin")
-Global $g_idTimezone = GUICtrlCreateCombo("", 245, 115, 390, 26, $CBS_DROPDOWN)
+GUICtrlCreateLabel("Hostname", 45, 120, 180, 20)
+Global $g_idHostname = GUICtrlCreateInput(IniRead($g_sIniPath, "SYSTEM", "HOSTNAME", "showplaypi"), 245, 115, 390, 26)
+GUICtrlSetTip($g_idHostname, "showplaypi = automatic: showplaypi- plus the last six digits of the MAC address, e.g. showplaypi-e84042")
+
+GUICtrlCreateLabel("Timezone", 45, 165, 180, 20)
+Global $g_sCurrentTimezone = IniRead($g_sIniPath, "SYSTEM", "TIMEZONE", "auto")
+Global $g_idTimezone = GUICtrlCreateCombo("", 245, 160, 390, 26, $CBS_DROPDOWN)
 GUICtrlSetData($g_idTimezone, _TimezoneList(), $g_sCurrentTimezone)
+GUICtrlSetTip($g_idTimezone, "auto = detected from the internet connection at every start (the public IP address is sent to " & _
+    "a free service); without internet the last detected time zone is kept")
 
-GUICtrlCreateLabel("NTP server", 45, 165, 180, 20)
-Global $g_idNtpServer = GUICtrlCreateInput(IniRead($g_sIniPath, "SYSTEM", "NTP_SERVER", "192.53.103.108"), 245, 160, 390, 26)
+GUICtrlCreateLabel("NTP server", 45, 210, 180, 20)
+Global $g_idNtpServer = GUICtrlCreateInput(IniRead($g_sIniPath, "SYSTEM", "NTP_SERVER", "192.53.103.108"), 245, 205, 390, 26)
 
-GUICtrlCreateLabel("The default NTP server is operated by PTB in Germany.", 245, 195, 390, 35)
+GUICtrlCreateLabel("The default NTP server is operated by PTB in Germany.", 245, 240, 390, 35)
+
+Global $g_idUsbConfigMode = GUICtrlCreateCheckbox("USB configuration mode while a computer is connected", 245, 285, 390, 24)
+_SetCheckboxFromIni($g_idUsbConfigMode, IniRead($g_sIniPath, "SYSTEM", "USB_CONFIG_MODE", "yes"))
+GUICtrlCreateLabel("Playback pauses while a computer uses the drive over USB-C; after unplugging, " & _
+    "ShowPlayPI restarts with the new settings.", 245, 312, 390, 35)
+
+Global $g_idBootMessages = GUICtrlCreateCheckbox("Show boot messages (for troubleshooting)", 245, 360, 390, 24)
+_SetCheckboxFromIni($g_idBootMessages, IniRead($g_sIniPath, "SYSTEM", "BOOT_MESSAGES", "no"))
+GUICtrlCreateLabel("Shows the system messages instead of the startup image while ShowPlayPI starts. " & _
+    "A change restarts ShowPlayPI once more automatically.", 245, 387, 390, 35)
 
 ; -----------------------------------------------------------------------------
 ; Network tab
@@ -93,7 +126,8 @@ GUICtrlCreateLabel("In DHCP mode, DNS1 and DNS2 are added to DNS servers receive
 GUICtrlCreateTabItem("Browser")
 
 GUICtrlCreateLabel("Target URL", 45, 75, 180, 20)
-Global $g_idUrl = GUICtrlCreateInput(IniRead($g_sIniPath, "BROWSER", "URL", "file:///home/admin/kiosk/setup.html"), 245, 70, 390, 26)
+Global $g_idUrl = GUICtrlCreateInput(IniRead($g_sIniPath, "BROWSER", "URL", ""), 245, 70, 390, 26)
+GUICtrlSetTip($g_idUrl, "Empty = default page: the setup page, in Companion mode the emulator chooser, in Ontime mode the Ontime view.")
 
 Global $g_idIgnoreCertificates = GUICtrlCreateCheckbox("Ignore invalid HTTPS certificates", 245, 115, 300, 24)
 _SetCheckboxFromIni($g_idIgnoreCertificates, IniRead($g_sIniPath, "BROWSER", "IGNORE_CERTIFICATE_ERRORS", "yes"))
@@ -109,8 +143,18 @@ Global $g_idReloadInterval = GUICtrlCreateInput(IniRead($g_sIniPath, "BROWSER", 
 
 GUICtrlCreateLabel("Use 0 to disable periodic reloads. The watchdog reloads the page automatically after recovery.", 245, 285, 390, 55)
 
-GUICtrlCreateLabel("Idle timeout (seconds)", 45, 350, 180, 20)
-Global $g_idIdleTimeout = GUICtrlCreateInput(IniRead($g_sIniPath, "BROWSER", "IDLE_TIMEOUT", "0"), 245, 345, 120, 26, $ES_NUMBER)
+; Shown as minutes and seconds; the INI keeps seconds (like the OSC command /showplaypi/idle)
+GUICtrlCreateLabel("Idle timeout", 45, 350, 180, 20)
+Global $g_iIdleTimeoutIni = Int(Number(IniRead($g_sIniPath, "BROWSER", "IDLE_TIMEOUT", "0")))
+Global $g_idIdleMinutes = GUICtrlCreateInput(Int($g_iIdleTimeoutIni / 60), 245, 345, 70, 26, $ES_NUMBER)
+; No thousands separator: "1.440" would be read as 1.44
+GUICtrlCreateUpdown($g_idIdleMinutes, BitOR($UDS_ALIGNRIGHT, $UDS_SETBUDDYINT, $UDS_ARROWKEYS, $UDS_NOTHOUSANDS))
+GUICtrlSetLimit(-1, 1440, 0)
+GUICtrlCreateLabel("min", 322, 350, 30, 20)
+Global $g_idIdleSeconds = GUICtrlCreateInput(Mod($g_iIdleTimeoutIni, 60), 360, 345, 70, 26, $ES_NUMBER)
+GUICtrlCreateUpdown($g_idIdleSeconds)
+GUICtrlSetLimit(-1, 59, 0)
+GUICtrlCreateLabel("s", 437, 350, 20, 20)
 
 GUICtrlCreateLabel("After idle timeout", 45, 395, 180, 20)
 Global $g_idIdleAction = GUICtrlCreateCombo("", 245, 390, 200, 26, $CBS_DROPDOWNLIST)
@@ -119,8 +163,66 @@ GUICtrlSetData($g_idIdleAction, "home|reload", _IdleActionFromIni(IniRead($g_sIn
 Global $g_idIdleClearSession = GUICtrlCreateCheckbox("Clear cookies, form data and logins on reset", 245, 430, 380, 24)
 _SetCheckboxFromIni($g_idIdleClearSession, IniRead($g_sIniPath, "BROWSER", "IDLE_CLEAR_SESSION", "no"))
 
-GUICtrlCreateLabel("Returns to the start page after this time without touch, mouse or keyboard input (0 = off). " & _
+GUICtrlCreateLabel("Returns to the start page after this time without touch, mouse or keyboard input (0 min 0 s = off). " & _
     "home: only if the visitor left the start page. reload: always reset after use.", 245, 462, 390, 55)
+
+; -----------------------------------------------------------------------------
+; Video tab
+; -----------------------------------------------------------------------------
+GUICtrlCreateTabItem("Video")
+
+GUICtrlCreateLabel("Videos and still images from the folder VIDEO on the drive SHOWPLAYPI play in alphabetical " & _
+    "order in a loop (operating mode video). Subfolders are additional playlists.", 45, 65, 590, 40)
+
+Global $g_idVideoAutostart = GUICtrlCreateCheckbox("Start playing automatically", 245, 115, 390, 24)
+_SetCheckboxFromIni($g_idVideoAutostart, IniRead($g_sIniPath, "VIDEO", "AUTOSTART", "yes"))
+
+GUICtrlCreateLabel("Start playlist", 45, 160, 180, 20)
+Global $g_idVideoPlaylist = GUICtrlCreateInput(IniRead($g_sIniPath, "VIDEO", "PLAYLIST", "VIDEO"), 245, 155, 200, 26)
+GUICtrlSetTip($g_idVideoPlaylist, "VIDEO or the name of a subfolder of VIDEO")
+
+GUICtrlCreateLabel("Transition", 45, 205, 180, 20)
+Global $g_idVideoTransition = GUICtrlCreateCombo("", 245, 200, 200, 26, $CBS_DROPDOWNLIST)
+GUICtrlSetData($g_idVideoTransition, "crossfade|black", _ListValue(IniRead($g_sIniPath, "VIDEO", "TRANSITION", "crossfade"), "crossfade|black"))
+
+GUICtrlCreateLabel("Fade time (milliseconds)", 45, 250, 180, 20)
+Global $g_idVideoFade = GUICtrlCreateInput(IniRead($g_sIniPath, "VIDEO", "FADE", "1000"), 245, 245, 120, 26, $ES_NUMBER)
+
+GUICtrlCreateLabel("Still image duration (seconds)", 45, 295, 180, 20)
+Global $g_idVideoStillDuration = GUICtrlCreateInput(IniRead($g_sIniPath, "VIDEO", "STILL_DURATION", "10"), 245, 290, 120, 26, $ES_NUMBER)
+
+GUICtrlCreateLabel("Still image scaling", 45, 340, 180, 20)
+Global $g_idVideoStillFit = GUICtrlCreateCombo("", 245, 335, 200, 26, $CBS_DROPDOWNLIST)
+GUICtrlSetData($g_idVideoStillFit, "fit|fill", _ListValue(IniRead($g_sIniPath, "VIDEO", "STILL_FIT", "fit"), "fit|fill"))
+
+GUICtrlCreateLabel("Volume (percent)", 45, 385, 180, 20)
+Global $g_idVideoVolume = GUICtrlCreateInput(IniRead($g_sIniPath, "VIDEO", "VOLUME", "100"), 245, 380, 70, 26, $ES_NUMBER)
+GUICtrlCreateUpdown($g_idVideoVolume, BitOR($UDS_ALIGNRIGHT, $UDS_SETBUDDYINT, $UDS_ARROWKEYS, $UDS_NOTHOUSANDS))
+GUICtrlSetLimit(-1, 100, 0)
+
+GUICtrlCreateLabel("crossfade is in preparation and fades through black for now. fit: whole image visible; " & _
+    "fill: screen filled, edges cut off. A duration in the file name wins, e.g. ""Sponsors [15sec].jpg"".", _
+    245, 425, 390, 60)
+
+; -----------------------------------------------------------------------------
+; Companion / Ontime tab
+; -----------------------------------------------------------------------------
+GUICtrlCreateTabItem("Companion / Ontime")
+
+GUICtrlCreateLabel("Operating mode companion: Bitfocus Companion runs on ShowPlayPI. Set it up in a browser at " & _
+    "http://<device name>.local:8000 - the screen shows its emulator chooser (touch, mouse and keyboard work); " & _
+    "an emulator can be selected there or via OSC.", 45, 65, 590, 55)
+
+GUICtrlCreateLabel("Operating mode ontime: Ontime runs on ShowPlayPI. Its editor: http://<device name>.local:4001 - " & _
+    "the screen shows the view below.", 45, 140, 590, 40)
+
+GUICtrlCreateLabel("Ontime view", 45, 200, 180, 20)
+Global $g_idOntimeView = GUICtrlCreateCombo("", 245, 195, 390, 26, $CBS_DROPDOWN)
+GUICtrlSetData($g_idOntimeView, "timer|backstage|countdown|studio|timeline", _OntimeViewFromIni(IniRead($g_sIniPath, "ONTIME", "VIEW", "timer")))
+GUICtrlSetTip($g_idOntimeView, "A view, optionally with the options of its settings, e.g. backstage?stopCycle=true")
+
+GUICtrlCreateLabel("An own target URL on the Browser tab replaces these views. If Companion's or Ontime's own OSC input " & _
+    "is enabled, it must not use UDP port 23878 (ShowPlayPI).", 45, 255, 590, 40)
 
 ; -----------------------------------------------------------------------------
 ; Display tab
@@ -155,7 +257,22 @@ _SetCheckboxFromIni($g_idVncEnabled, IniRead($g_sIniPath, "VNC", "ENABLED", "yes
 GUICtrlCreateLabel("VNC port", 45, 125, 180, 20)
 Global $g_idVncPort = GUICtrlCreateInput(IniRead($g_sIniPath, "VNC", "PORT", "5900"), 245, 120, 120, 26, $ES_NUMBER)
 
-GUICtrlCreateLabel("VNC displays the actual Chromium kiosk session shown on HDMI.", 245, 165, 390, 40)
+GUICtrlCreateLabel("VNC shows the actual picture on HDMI – the browser or the video player.", 245, 165, 390, 40)
+
+; -----------------------------------------------------------------------------
+; Network share tab
+; -----------------------------------------------------------------------------
+GUICtrlCreateTabItem("Share")
+
+Global $g_idShareEnabled = GUICtrlCreateCheckbox("Share the SHOWPLAYPI drive on the network", 245, 75, 390, 24)
+_SetCheckboxFromIni($g_idShareEnabled, IniRead($g_sIniPath, "NETWORK_SHARE", "ENABLED", "yes"))
+
+GUICtrlCreateLabel( _
+    "Configuration and files (HTML, VIDEO, AUDIO, PRESETS) can then also be edited over the network:" & @CRLF & @CRLF & _
+    "Windows:  \\<device name>.local\SHOWPLAYPI" & @CRLF & _
+    "Mac:  smb://<device name>.local/SHOWPLAYPI" & @CRLF & @CRLF & _
+    "User name admin, password admin.", _
+    245, 120, 390, 130)
 
 ; -----------------------------------------------------------------------------
 ; OSC tab
@@ -166,11 +283,11 @@ Global $g_idOscEnabled = GUICtrlCreateCheckbox("Enable OSC remote control", 245,
 _SetCheckboxFromIni($g_idOscEnabled, IniRead($g_sIniPath, "OSC", "ENABLED", "yes"))
 
 GUICtrlCreateLabel("UDP port", 45, 125, 180, 20)
-Global $g_idOscPort = GUICtrlCreateInput("9000", 245, 120, 120, 26, $ES_READONLY)
+Global $g_idOscPort = GUICtrlCreateInput("23878", 245, 120, 120, 26, $ES_READONLY)
 GUICtrlSetState($g_idOscPort, $GUI_DISABLE)
 
 GUICtrlCreateLabel( _
-    "OSC uses UDP port 9000. Changes made via OSC (for example a new URL or idle timeout) " & _
+    "OSC uses UDP port 23878. Changes made via OSC (for example a new URL or idle timeout) " & _
     "last until the next restart. Permanent changes are only made here in the configuration.", _
     245, 170, 390, 60)
 
@@ -203,7 +320,8 @@ Global $g_idDownloadPage = GUICtrlCreateButton("Open Download Page", 45, 345, 19
 
 GUICtrlCreateTabItem("")
 
-Global $g_idStatus = GUICtrlCreateLabel("Configuration file: " & $g_sIniPath, 25, 545, 500, 22)
+Global $g_idStatus = GUICtrlCreateLabel("Configuration file: " & $g_sIniPath, 25, 545, 290, 22)
+Global $g_idSaveRestart = GUICtrlCreateButton("Save and Restart", 330, 540, 170, 34)
 Global $g_idSave = GUICtrlCreateButton("Save Configuration", 520, 540, 160, 34)
 
 _UpdateNetworkControls()
@@ -242,6 +360,11 @@ While True
                 ExitLoop
             EndIf
 
+        Case $g_idSaveRestart
+            If _SaveConfiguration(True) Then
+                ExitLoop
+            EndIf
+
         Case $g_idDownloadPage
             ShellExecute($g_sDownloadUrl)
     EndSwitch
@@ -253,9 +376,12 @@ GUIDelete($g_hGui)
 Func _CreateDefaultIni()
     Local $bSuccess = True
 
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "MODE", "browser") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "HOSTNAME", "showplaypi") And $bSuccess
-    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "TIMEZONE", "Europe/Berlin") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "TIMEZONE", "auto") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "NTP_SERVER", "192.53.103.108") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "USB_CONFIG_MODE", "yes") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "BOOT_MESSAGES", "no") And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "NETWORK", "MODE", "dhcp") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK", "IP", "") And $bSuccess
@@ -264,7 +390,7 @@ Func _CreateDefaultIni()
     $bSuccess = IniWrite($g_sIniPath, "NETWORK", "DNS1", "") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK", "DNS2", "8.8.8.8") And $bSuccess
 
-    $bSuccess = IniWrite($g_sIniPath, "BROWSER", "URL", "file:///home/admin/kiosk/setup.html") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "BROWSER", "URL", "") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "IGNORE_CERTIFICATE_ERRORS", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "WATCHDOG_ENABLED", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "WATCHDOG_INTERVAL", "5") And $bSuccess
@@ -273,6 +399,16 @@ Func _CreateDefaultIni()
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "IDLE_ACTION", "home") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "IDLE_CLEAR_SESSION", "no") And $bSuccess
 
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "AUTOSTART", "yes") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "PLAYLIST", "VIDEO") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "TRANSITION", "crossfade") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "FADE", "1000") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "STILL_DURATION", "10") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "STILL_FIT", "fit") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "VOLUME", "100") And $bSuccess
+
+    $bSuccess = IniWrite($g_sIniPath, "ONTIME", "VIEW", "timer") And $bSuccess
+
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "MODE", "auto") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "FALLBACK", "1920x1080@60") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "RESOLUTION", "1920x1080") And $bSuccess
@@ -280,15 +416,37 @@ Func _CreateDefaultIni()
 
     $bSuccess = IniWrite($g_sIniPath, "VNC", "ENABLED", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "VNC", "PORT", "5900") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "NETWORK_SHARE", "ENABLED", "yes") And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "OSC", "ENABLED", "yes") And $bSuccess
-    $bSuccess = IniWrite($g_sIniPath, "OSC", "PORT", "9000") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "OSC", "PORT", "23878") And $bSuccess
 
+    _FlushToDrive($g_sIniPath)
     Return $bSuccess
 EndFunc
 
 
-Func _SaveConfiguration()
+; Writes the file to the drive immediately instead of leaving it in the Windows write cache.
+; The flush reaches ShowPlayPI as SYNCHRONIZE CACHE, which stores the drive on its SD card
+; before this function returns - the user can unplug the cable right after saving.
+Func _FlushToDrive($sPath)
+    Local Const $GENERIC_WRITE = 0x40000000
+    Local Const $FILE_SHARE_READ_WRITE = 0x3
+    Local Const $OPEN_EXISTING = 3
+
+    Local $aFile = DllCall("kernel32.dll", "handle", "CreateFileW", "wstr", $sPath, "dword", $GENERIC_WRITE, _
+        "dword", $FILE_SHARE_READ_WRITE, "ptr", 0, "dword", $OPEN_EXISTING, "dword", 0, "ptr", 0)
+    If @error Or $aFile[0] = Ptr(-1) Then Return False
+
+    Local $aFlush = DllCall("kernel32.dll", "bool", "FlushFileBuffers", "handle", $aFile[0])
+    Local $bFlushed = (Not @error) And $aFlush[0] <> 0
+    DllCall("kernel32.dll", "bool", "CloseHandle", "handle", $aFile[0])
+
+    Return $bFlushed
+EndFunc
+
+
+Func _SaveConfiguration($bRestart = False)
     Local $sHostname = StringStripWS(GUICtrlRead($g_idHostname), 3)
     Local $sTimezone = StringStripWS(GUICtrlRead($g_idTimezone), 3)
     Local $sNtp = StringStripWS(GUICtrlRead($g_idNtpServer), 3)
@@ -301,13 +459,20 @@ Func _SaveConfiguration()
     Local $sUrl = StringStripWS(GUICtrlRead($g_idUrl), 3)
     Local $iWatchdogInterval = Number(GUICtrlRead($g_idWatchdogInterval))
     Local $iReloadInterval = Number(GUICtrlRead($g_idReloadInterval))
-    Local $iIdleTimeout = Number(GUICtrlRead($g_idIdleTimeout))
+    Local $iIdleMinutes = Number(GUICtrlRead($g_idIdleMinutes))
+    Local $iIdleSeconds = Number(GUICtrlRead($g_idIdleSeconds))
+    Local $iIdleTimeout = $iIdleMinutes * 60 + $iIdleSeconds
     Local $sIdleAction = StringLower(GUICtrlRead($g_idIdleAction))
     Local $sDisplayMode = StringLower(GUICtrlRead($g_idDisplayMode))
     Local $sFallback = _DisplayLabelToValue(StringStripWS(GUICtrlRead($g_idFallback), 3))
     Local $sResolution = StringStripWS(GUICtrlRead($g_idResolution), 3)
     Local $sRefresh = StringStripWS(GUICtrlRead($g_idRefresh), 3)
     Local $iVncPort = Number(GUICtrlRead($g_idVncPort))
+    Local $sVideoPlaylist = StringStripWS(GUICtrlRead($g_idVideoPlaylist), 3)
+    Local $iVideoFade = Number(GUICtrlRead($g_idVideoFade))
+    Local $iVideoStillDuration = Number(GUICtrlRead($g_idVideoStillDuration))
+    Local $iVideoVolume = Number(GUICtrlRead($g_idVideoVolume))
+    Local $sOntimeView = StringStripWS(GUICtrlRead($g_idOntimeView), 3)
 
     If Not StringRegExp($sHostname, "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$") Then
         _ValidationError("Enter a valid hostname.", $g_idHostname)
@@ -351,8 +516,8 @@ Func _SaveConfiguration()
         Return
     EndIf
 
-    If Not StringRegExp($sUrl, "(?i)^(https?|file)://.+") Then
-        _ValidationError("The target URL must begin with http://, https:// or file://.", $g_idUrl)
+    If $sUrl <> "" And Not StringRegExp($sUrl, "(?i)^(https?|file)://.+") Then
+        _ValidationError("The target URL must begin with http://, https:// or file:// (or stay empty for the default page).", $g_idUrl)
         Return
     EndIf
 
@@ -366,8 +531,13 @@ Func _SaveConfiguration()
         Return
     EndIf
 
-    If $iIdleTimeout < 0 Or $iIdleTimeout > 86400 Then
-        _ValidationError("The idle timeout must be between 0 (off) and 86400 seconds.", $g_idIdleTimeout)
+    If $iIdleSeconds < 0 Or $iIdleSeconds > 59 Then
+        _ValidationError("The idle timeout seconds must be between 0 and 59.", $g_idIdleSeconds)
+        Return
+    EndIf
+
+    If $iIdleMinutes < 0 Or $iIdleTimeout > 86400 Then
+        _ValidationError("The idle timeout can be at most 24 hours (1440 minutes).", $g_idIdleMinutes)
         Return
     EndIf
 
@@ -391,10 +561,38 @@ Func _SaveConfiguration()
         Return
     EndIf
 
+    If $sVideoPlaylist = "" Or StringRegExp($sVideoPlaylist, "[\\/:*?""<>|]") Then
+        _ValidationError("Enter VIDEO or the name of a subfolder of VIDEO as start playlist.", $g_idVideoPlaylist)
+        Return
+    EndIf
+
+    If $iVideoFade > 60000 Then
+        _ValidationError("The fade time can be at most 60000 milliseconds.", $g_idVideoFade)
+        Return
+    EndIf
+
+    If $iVideoStillDuration < 1 Or $iVideoStillDuration > 86400 Then
+        _ValidationError("The still image duration must be between 1 and 86400 seconds.", $g_idVideoStillDuration)
+        Return
+    EndIf
+
+    If $iVideoVolume > 100 Then
+        _ValidationError("The volume must be between 0 and 100 percent.", $g_idVideoVolume)
+        Return
+    EndIf
+
+    If Not StringRegExp($sOntimeView, "^[A-Za-z0-9_-]+(\?\S+)?$") Then
+        _ValidationError("Choose an Ontime view, optionally with options, e.g. backstage?stopCycle=true.", $g_idOntimeView)
+        Return
+    EndIf
+
     Local $bSuccess = True
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "MODE", GUICtrlRead($g_idMode)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "HOSTNAME", $sHostname) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "TIMEZONE", $sTimezone) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "NTP_SERVER", $sNtp) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "USB_CONFIG_MODE", _CheckboxValue($g_idUsbConfigMode)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "BOOT_MESSAGES", _CheckboxValue($g_idBootMessages)) And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "NETWORK", "MODE", $sNetworkMode) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK", "IP", $sIp) And $bSuccess
@@ -412,16 +610,27 @@ Func _SaveConfiguration()
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "IDLE_ACTION", $sIdleAction) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "BROWSER", "IDLE_CLEAR_SESSION", _CheckboxValue($g_idIdleClearSession)) And $bSuccess
 
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "AUTOSTART", _CheckboxValue($g_idVideoAutostart)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "PLAYLIST", $sVideoPlaylist) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "TRANSITION", GUICtrlRead($g_idVideoTransition)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "FADE", String($iVideoFade)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "STILL_DURATION", String($iVideoStillDuration)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "STILL_FIT", GUICtrlRead($g_idVideoStillFit)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "VIDEO", "VOLUME", String($iVideoVolume)) And $bSuccess
+
+    $bSuccess = IniWrite($g_sIniPath, "ONTIME", "VIEW", $sOntimeView) And $bSuccess
+
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "MODE", $sDisplayMode) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "FALLBACK", $sFallback) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "RESOLUTION", $sResolution) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "REFRESH", $sRefresh) And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "VNC", "ENABLED", _CheckboxValue($g_idVncEnabled)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "NETWORK_SHARE", "ENABLED", _CheckboxValue($g_idShareEnabled)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "VNC", "PORT", String($iVncPort)) And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "OSC", "ENABLED", _CheckboxValue($g_idOscEnabled)) And $bSuccess
-    $bSuccess = IniWrite($g_sIniPath, "OSC", "PORT", "9000") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "OSC", "PORT", "23878") And $bSuccess
 
     If Not $bSuccess Then
         MsgBox($MB_ICONERROR, "ShowPlayPI Configurator", _
@@ -430,11 +639,46 @@ Func _SaveConfiguration()
         Return
     EndIf
 
-    GUICtrlSetData($g_idStatus, "Configuration saved successfully: " & $g_sIniPath)
-    MsgBox($MB_ICONINFORMATION, "ShowPlayPI Configurator", _
-        "Configuration saved successfully." & @CRLF & @CRLF & _
-        "Eject the drive, then restart ShowPlayPI to apply the changes.")
+    ; Over USB-C, ShowPlayPI writes what the computer saved to its SD card within about a second;
+    ; wait with a safety margin before telling the user to unplug the cable.
+    GUICtrlSetData($g_idStatus, "Saving the configuration on ShowPlayPI ...")
+    GUISetCursor(15, 1, $g_hGui)
+    Local $bFlushed = _FlushToDrive($g_sIniPath)
+    If $bRestart Then $bRestart = _RequestRestart()
+    Sleep(3000)
+    GUISetCursor(2, 0, $g_hGui)
 
+    Local $bNetwork = (DriveGetType(@ScriptDir) = "Network")
+    Local $sNext
+    If $bRestart And $bNetwork Then
+        $sNext = "ShowPlayPI restarts in a few seconds and applies the changes."
+    ElseIf $bNetwork Then
+        $sNext = "The changes are applied the next time ShowPlayPI starts."
+    ElseIf $bFlushed Or $bRestart Then
+        ; Over USB-C, unplugging the cable restarts ShowPlayPI anyway (USB configuration mode)
+        $sNext = "You can unplug the USB cable now: ShowPlayPI then restarts with the new settings." & @CRLF & @CRLF & _
+            "If ShowPlayPI is powered by this computer, start it with its power supply or PoE afterwards."
+    Else
+        $sNext = "Eject the drive before unplugging the USB cable, then restart ShowPlayPI to apply the changes."
+    EndIf
+
+    GUICtrlSetData($g_idStatus, "Configuration saved.")
+    MsgBox($MB_ICONINFORMATION, "ShowPlayPI Configurator", "Configuration saved." & @CRLF & @CRLF & $sNext)
+    Return True
+EndFunc
+
+
+; Asks ShowPlayPI to restart and apply the configuration: a hidden request file next to showplaypi.ini,
+; picked up at once over the network, or when the drive is ejected over USB-C.
+Func _RequestRestart()
+    Local $sFile = @ScriptDir & "\.restart-request"
+    Local $hFile = FileOpen($sFile, $FO_OVERWRITE)
+    If $hFile = -1 Then Return False
+
+    FileWrite($hFile, "Restart requested by the ShowPlayPI Configurator" & @CRLF)
+    FileClose($hFile)
+    FileSetAttrib($sFile, "+H")
+    _FlushToDrive($sFile)
     Return True
 EndFunc
 
@@ -533,7 +777,7 @@ EndFunc
 
 
 Func _TimezoneList()
-    Return "UTC|" & _
+    Return "auto|UTC|" & _
         "Africa/Abidjan|Africa/Accra|Africa/Addis_Ababa|Africa/Algiers|Africa/Cairo|" & _
         "Africa/Casablanca|Africa/Dar_es_Salaam|Africa/Harare|Africa/Johannesburg|" & _
         "Africa/Kampala|Africa/Khartoum|Africa/Lagos|Africa/Maputo|Africa/Nairobi|" & _
@@ -641,4 +885,26 @@ EndFunc
 Func _IdleActionFromIni($sValue)
     If StringLower(StringStripWS($sValue, 3)) = "reload" Then Return "reload"
     Return "home"
+EndFunc
+
+Func _ModeFromIni($sValue)
+    Return _ListValue($sValue, "browser|video|ontime|companion")
+EndFunc
+
+; The value if it is one of the list entries (case-insensitive), otherwise the first entry
+Func _ListValue($sValue, $sList)
+    Local $aEntries = StringSplit($sList, "|")
+    $sValue = StringLower(StringStripWS($sValue, 3))
+    For $i = 1 To $aEntries[0]
+        If $aEntries[$i] = $sValue Then Return $aEntries[$i]
+    Next
+    Return $aEntries[1]
+EndFunc
+
+
+; A view name, optionally with options ("backstage?stopCycle=true"); anything else: timer
+Func _OntimeViewFromIni($sValue)
+    $sValue = StringStripWS($sValue, 3)
+    If StringRegExp($sValue, "^[A-Za-z0-9_-]+(\?\S+)?$") Then Return $sValue
+    Return "timer"
 EndFunc

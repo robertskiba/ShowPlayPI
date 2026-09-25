@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 TIMESYNCD_CONFIG="/etc/systemd/timesyncd.conf.d/showplaypi.conf"
 
 ini_get() {
@@ -69,6 +69,18 @@ HOSTNAME_VALUE="$(ini_get SYSTEM HOSTNAME)"
 TIMEZONE_VALUE="$(ini_get SYSTEM TIMEZONE)"
 NTP_SERVER_VALUE="$(ini_get SYSTEM NTP_SERVER)"
 
+# The default name "showplaypi" gets the last six digits of the Ethernet MAC address (e.g. showplaypi-e84042):
+# unique and fixed from the first start, so several devices never share a name – even if they are not
+# online at the same time. A name set in showplaypi.ini is used as it is.
+if [ -z "$HOSTNAME_VALUE" ] || [ "${HOSTNAME_VALUE,,}" = "showplaypi" ]; then
+    MAC_SUFFIX="$(tr -d ':\n' < /sys/class/net/eth0/address 2>/dev/null | tail -c 6)"
+    if [[ "$MAC_SUFFIX" =~ ^[0-9a-f]{6}$ ]]; then
+        HOSTNAME_VALUE="showplaypi-$MAC_SUFFIX"
+    else
+        HOSTNAME_VALUE="showplaypi"
+    fi
+fi
+
 if [[ "$HOSTNAME_VALUE" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; then
     if [ "$(hostname)" != "$HOSTNAME_VALUE" ]; then
         hostnamectl set-hostname "$HOSTNAME_VALUE"
@@ -87,6 +99,13 @@ else
 fi
 
 
+
+# auto (default): the time zone last detected from the internet connection (showplaypi-timezone.service
+# updates it once online), before the first detection Europe/Berlin
+if [ -z "$TIMEZONE_VALUE" ] || [ "${TIMEZONE_VALUE,,}" = "auto" ]; then
+    TIMEZONE_VALUE="$(head -n 1 /var/lib/showplaypi/timezone-detected 2>/dev/null)"
+    [ -n "$TIMEZONE_VALUE" ] || TIMEZONE_VALUE="Europe/Berlin"
+fi
 
 if [[ "$TIMEZONE_VALUE" != *".."* ]] &&
    [ -f "/usr/share/zoneinfo/$TIMEZONE_VALUE" ]; then
@@ -117,3 +136,73 @@ FallbackNTP="
 else
     log_message "Invalid NTP server ignored: $NTP_SERVER_VALUE"
 fi
+
+# Boot messages: quiet boot with the logo (default) or visible boot text for troubleshooting.
+# The kernel command line only takes effect on the next boot, so a changed setting triggers one
+# automatic restart – but only while the system is still booting, never during operation.
+CMDLINE="/boot/firmware/cmdline.txt"
+# Quiet: the console moves to the invisible tty3, so no message (e.g. the file system check of the boot
+# partition) is written over the startup image, and the cursor is hidden.
+QUIET_BOOT_ARGS="fullscreen_logo=1 fullscreen_logo_name=logo.tga loglevel=0 systemd.show_status=false udev.log_level=3 console=tty3 vt.global_cursor_default=0"
+VERBOSE_BOOT_ARGS="loglevel=7 systemd.show_status=true console=tty1 vt.global_cursor_default=1"
+
+case "$(ini_get SYSTEM BOOT_MESSAGES | tr '[:upper:]' '[:lower:]')" in
+    yes|true|1|on)
+        WANTED_BOOT_ARGS="$VERBOSE_BOOT_ARGS"
+        BOOT_MODE="visible boot messages"
+        ;;
+    *)
+        WANTED_BOOT_ARGS="$QUIET_BOOT_ARGS"
+        BOOT_MODE="quiet boot with logo"
+        ;;
+esac
+
+if [ -f "$CMDLINE" ]; then
+    CURRENT_CMDLINE="$(tr -d '\r\n' < "$CMDLINE")"
+    BASE_CMDLINE="$(printf '%s' "$CURRENT_CMDLINE" | tr ' ' '\n' |
+        grep -vE '^(quiet|splash|loglevel=|systemd\.show_status=|udev\.log_level=|fullscreen_logo=|fullscreen_logo_name=|console=tty[0-9]+$|vt\.global_cursor_default=)' |
+        grep -v '^$' | tr '\n' ' ')"
+    NEW_CMDLINE="${BASE_CMDLINE}${WANTED_BOOT_ARGS}"
+
+    if [ "$NEW_CMDLINE" != "$CURRENT_CMDLINE" ]; then
+        printf '%s\n' "$NEW_CMDLINE" > "$CMDLINE.new" && sync && mv "$CMDLINE.new" "$CMDLINE" && sync
+
+        if [ "$(tr -d '\r\n' < "$CMDLINE")" = "$NEW_CMDLINE" ]; then
+            log_message "Boot mode changed to: $BOOT_MODE"
+
+            if [ "$(systemctl is-system-running 2>/dev/null)" = "starting" ]; then
+                log_message "Restarting once to apply the boot mode."
+                systemctl reboot --no-block
+            else
+                log_message "The boot mode takes effect after the next restart."
+            fi
+        else
+            log_message "Could not update $CMDLINE – boot mode unchanged."
+        fi
+    fi
+fi
+
+# Network share of the SHOWPLAYPI drive (Samba, user admin/admin): [NETWORK_SHARE] ENABLED=yes|no
+AVAHI_SMB_SERVICE="/etc/avahi/services/showplaypi-smb.service"
+
+case "$(ini_get NETWORK_SHARE ENABLED | tr '[:upper:]' '[:lower:]')" in
+    no|false|0|off)
+        if systemctl is-enabled --quiet smbd.service 2>/dev/null; then
+            systemctl disable --now --no-block smbd.service wsdd2.service >/dev/null 2>&1
+            log_message "Network share disabled."
+        fi
+        rm -f "$AVAHI_SMB_SERVICE"
+        ;;
+    *)
+        # The Samba password of admin (kept even if the Samba database was reset)
+        if ! pdbedit -L -u admin >/dev/null 2>&1; then
+            printf 'admin\nadmin\n' | smbpasswd -s -a admin >/dev/null
+        fi
+        cmp -s /usr/share/showplaypi/avahi/smb.service "$AVAHI_SMB_SERVICE" ||
+            install -m 644 /usr/share/showplaypi/avahi/smb.service "$AVAHI_SMB_SERVICE"
+        if ! systemctl is-enabled --quiet smbd.service 2>/dev/null; then
+            systemctl enable --now --no-block smbd.service wsdd2.service >/dev/null 2>&1
+            log_message "Network share enabled."
+        fi
+        ;;
+esac

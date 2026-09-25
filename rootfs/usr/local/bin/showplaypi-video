@@ -1,0 +1,661 @@
+#!/usr/bin/python3
+"""ShowPlayPI video mode: full-screen player for videos and still images from the SHOWPLAYPI drive.
+
+mpv shows the picture full-screen in the X session of the kiosk unit (so VNC and the display settings work
+as in browser mode; hardware decoding where the Pi has it); this service controls it through mpv's JSON IPC: playlists, order, still image durations, fades and the commands from showplaypi-osc.
+
+- VIDEO/ is playlist 1 and the default; its subfolders (one level) follow alphabetically as playlists 2, 3 …
+- By default playlist 1 starts automatically and loops in alphabetical order ([VIDEO] AUTOSTART).
+- Still images stay for [VIDEO] STILL_DURATION seconds, or for a tag in the file name: "Sponsors [15sec].jpg".
+- Commands: JSON datagrams on /run/showplaypi/video.sock, e.g. {"command": "next", "args": [500]}.
+  All times in milliseconds, volumes in percent (see docs/OSC.md).
+- State (for status replies and feedbacks): /run/showplaypi/video-status.json
+
+Not implemented yet: crossfades (transitions fade through black for now), mirroring to both HDMI outputs.
+"""
+
+import json
+import logging
+import os
+import re
+import socket
+import subprocess
+import time
+from pathlib import Path
+
+CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
+VIDEO_DIR = Path("/media/showplaypi/VIDEO")
+RUNTIME_DIR = Path("/run/showplaypi")
+CONTROL_SOCKET = RUNTIME_DIR / "video.sock"
+MPV_SOCKET = RUNTIME_DIR / "mpv.sock"
+STATUS_FILE = RUNTIME_DIR / "video-status.json"
+
+VIDEO_TYPES = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mpg", ".mpeg", ".ts", ".mts", ".m2ts"}
+STILL_TYPES = {".jpg", ".jpeg", ".png", ".webp"}
+# "[15sec]", "[15 sec]", "[15s]", "[2.5s]"
+DURATION_TAG = re.compile(r"\s*\[\s*(\d+(?:[.,]\d+)?)\s*s(?:ec)?\s*\]", re.IGNORECASE)
+
+TICK_SECONDS = 0.05
+RESCAN_SECONDS = 2.0
+STATUS_SECONDS = 1.0
+FADE_STEP_SECONDS = 0.04
+BLACK = -100  # mpv brightness of a black picture
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("showplaypi-video")
+
+
+# --- Configuration --------------------------------------------------------------------------------------------
+
+def ini_section(name):
+    values = {}
+    section = ""
+    try:
+        lines = CONFIG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return values
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+        elif section == name and "=" in line:
+            key, value = line.split("=", 1)
+            values.setdefault(key.strip().upper(), value.strip())
+    return values
+
+
+def number(value, default, minimum=None, maximum=None):
+    try:
+        result = float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and result < minimum:
+        return default
+    if maximum is not None and result > maximum:
+        return default
+    return result
+
+
+class Settings:
+    def __init__(self):
+        video = ini_section("VIDEO")
+        self.autostart = video.get("AUTOSTART", "yes").lower() not in ("no", "false", "0", "off")
+        self.start_playlist = video.get("PLAYLIST", "VIDEO")
+        self.transition = video.get("TRANSITION", "crossfade").lower()
+        self.fade_ms = int(number(video.get("FADE"), 1000, 0, 60000))
+        self.still_ms = int(number(video.get("STILL_DURATION"), 10, 0.1, 86400) * 1000)
+        self.fill = video.get("STILL_FIT", "fit").lower() == "fill"
+        self.volume = int(number(video.get("VOLUME"), 100, 0, 100))
+
+
+# --- Playlists ------------------------------------------------------------------------------------------------
+
+class Entry:
+    def __init__(self, path, still_ms):
+        self.path = path
+        self.file = path.name
+        self.still = path.suffix.lower() in STILL_TYPES
+        tag = DURATION_TAG.search(path.stem)
+        self.tagged_ms = int(float(tag.group(1).replace(",", ".")) * 1000) if tag else None
+        self.title = DURATION_TAG.sub("", path.stem).strip() or path.stem
+        self.default_still_ms = still_ms
+
+    @property
+    def still_ms(self):
+        return self.tagged_ms if self.tagged_ms is not None else self.default_still_ms
+
+    def to_json(self, number, duration_ms=None):
+        return {"number": number, "file": self.file, "title": self.title,
+                "type": "still" if self.still else "video",
+                "duration": self.still_ms if self.still else duration_ms}
+
+
+def playable(path):
+    return (path.is_file() and not path.name.startswith(".")
+            and path.suffix.lower() in VIDEO_TYPES | STILL_TYPES)
+
+
+def sorted_by_name(paths):
+    return sorted(paths, key=lambda path: path.name.casefold())
+
+
+def scan_playlists(still_ms):
+    """[(name, [Entry, …]), …] – VIDEO/ first, then its subfolders alphabetically."""
+    if not VIDEO_DIR.is_dir():
+        return []
+    try:
+        children = list(VIDEO_DIR.iterdir())
+    except OSError:
+        return []
+    playlists = [("VIDEO", [Entry(path, still_ms) for path in sorted_by_name(filter(playable, children))])]
+    for folder in sorted_by_name(path for path in children
+                                 if path.is_dir() and not path.name.startswith(".")
+                                 and path.name.lower() != "system volume information"):
+        try:
+            files = list(folder.iterdir())
+        except OSError:
+            files = []
+        playlists.append((folder.name, [Entry(path, still_ms) for path in sorted_by_name(filter(playable, files))]))
+    return playlists
+
+
+def playlists_signature(playlists):
+    return [(name, [entry.file for entry in entries]) for name, entries in playlists]
+
+
+def jpeg_orientation(path):
+    """EXIF orientation of a JPEG (1 = upright), read without extra libraries."""
+    try:
+        data = path.read_bytes()[:262144]
+    except OSError:
+        return 1
+    if data[:2] != b"\xff\xd8":
+        return 1
+    position = 2
+    while position + 4 <= len(data) and data[position] == 0xFF:
+        marker = data[position + 1]
+        length = int.from_bytes(data[position + 2:position + 4], "big")
+        if marker == 0xE1 and data[position + 4:position + 10] == b"Exif\0\0":
+            tiff = data[position + 10:position + 2 + length]
+            order = "little" if tiff[:2] == b"II" else "big"
+            directory = int.from_bytes(tiff[4:8], order)
+            count = int.from_bytes(tiff[directory:directory + 2], order)
+            for index in range(count):
+                field = directory + 2 + index * 12
+                if int.from_bytes(tiff[field:field + 2], order) == 0x0112:
+                    return int.from_bytes(tiff[field + 8:field + 10], order)
+            return 1
+        if marker == 0xDA:  # image data starts, no EXIF before it
+            return 1
+        position += 2 + length
+    return 1
+
+
+# --- mpv ------------------------------------------------------------------------------------------------------
+
+def wait_for_x(seconds=60):
+    """The kiosk unit starts X at the same time; mpv needs the display to be up."""
+    display = os.environ.get("DISPLAY", ":0").lstrip(":").split(".")[0]
+    address = f"/tmp/.X11-unix/X{display}"
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                probe.connect(address)
+            return
+        except OSError:
+            time.sleep(0.5)
+    raise RuntimeError("the X session did not start")
+
+
+class Mpv:
+    def __init__(self, volume):
+        MPV_SOCKET.unlink(missing_ok=True)
+        self.process = subprocess.Popen([
+            "mpv", "--idle=yes", "--force-window=yes", "--fullscreen", "--keep-open=yes",
+            "--image-display-duration=inf", "--no-osc", "--osd-level=0", "--no-input-default-bindings",
+            "--input-vo-keyboard=no", "--no-terminal", "--cursor-autohide=always",
+            # profile=fast: simpler scaling – without it the Pi 5 dropped about 40 % of the frames of a
+            # 1080p60 video (measured 2026-09-25), with it none
+            "--no-config", "--profile=fast",
+            "--ao=pipewire,alsa", "--vo=gpu", "--hwdec=auto-safe", "--stop-screensaver=yes",
+            f"--volume={volume}", f"--brightness={BLACK}", f"--input-ipc-server={MPV_SOCKET}",
+        ])
+        self.connection = None
+        for _ in range(100):
+            try:
+                self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.connection.connect(str(MPV_SOCKET))
+                break
+            except OSError:
+                self.connection.close()
+                self.connection = None
+                if self.process.poll() is not None:
+                    raise RuntimeError("mpv could not be started")
+                time.sleep(0.1)
+        if self.connection is None:
+            raise RuntimeError("no connection to mpv")
+        self.connection.settimeout(2)
+        self.buffer = b""
+        self.events = []
+        self.request = 0
+
+    def _read_line(self):
+        while b"\n" not in self.buffer:
+            chunk = self.connection.recv(65536)
+            if not chunk:
+                raise RuntimeError("mpv has stopped")
+            self.buffer += chunk
+        line, self.buffer = self.buffer.split(b"\n", 1)
+        return json.loads(line)
+
+    def command(self, *arguments):
+        self.request += 1
+        request = self.request
+        self.connection.sendall(json.dumps({"command": list(arguments), "request_id": request}).encode() + b"\n")
+        while True:
+            message = self._read_line()
+            if "event" in message:
+                self.events.append(message)
+            elif message.get("request_id") == request:
+                if message.get("error") not in (None, "success"):
+                    return None
+                return message.get("data")
+
+    def get(self, name):
+        return self.command("get_property", name)
+
+    def set(self, name, value):
+        self.command("set_property", name, value)
+
+    def take_events(self):
+        """Events received so far (non-blocking)."""
+        self.connection.setblocking(False)
+        try:
+            while True:
+                try:
+                    chunk = self.connection.recv(65536)
+                except BlockingIOError:
+                    break
+                if not chunk:
+                    raise RuntimeError("mpv has stopped")
+                self.buffer += chunk
+        finally:
+            self.connection.settimeout(2)
+        while b"\n" in self.buffer:
+            line, self.buffer = self.buffer.split(b"\n", 1)
+            message = json.loads(line)
+            if "event" in message:
+                self.events.append(message)
+        events, self.events = self.events, []
+        return events
+
+
+# --- Player ---------------------------------------------------------------------------------------------------
+
+class Player:
+    def __init__(self):
+        self.settings = Settings()
+        self.mpv = Mpv(self.settings.volume)
+        self.playlists = scan_playlists(self.settings.still_ms)
+        self.signature = playlists_signature(self.playlists)
+        self.playlist = 0
+        self.index = 0
+        self.state = "stopped"
+        self.repeat = "all"
+        self.fade_ms = self.settings.fade_ms
+        self.volume = self.settings.volume
+        self.mute = False
+        self.blackout = False
+        self.brightness = BLACK
+        self.still_elapsed_ms = 0
+        self.last_tick = time.monotonic()
+        self.transitioning = False
+        self.failed = False
+        # Video durations are only known once mpv has loaded a file (for the file list)
+        self.durations = {}
+        if self.settings.transition == "crossfade":
+            log.info("Crossfades are not implemented yet – transitions fade through black.")
+
+        start = self.find_playlist(self.settings.start_playlist)
+        self.playlist = start if start is not None else 0
+        if self.settings.autostart:
+            self.show(0, self.fade_ms)
+
+    # Playlists and entries
+
+    @property
+    def entries(self):
+        return self.playlists[self.playlist][1] if self.playlists else []
+
+    @property
+    def current(self):
+        entries = self.entries
+        return entries[self.index] if 0 <= self.index < len(entries) else None
+
+    def find_playlist(self, value):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            number = int(value)
+            return number - 1 if 1 <= number <= len(self.playlists) else None
+        text = str(value).strip()
+        if text.isdigit():
+            return self.find_playlist(int(text))
+        for position, (name, _) in enumerate(self.playlists):
+            if name.casefold() == text.casefold():
+                return position
+        return None
+
+    def find_entry(self, value):
+        entries = self.entries
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            number = int(value)
+            return number - 1 if 1 <= number <= len(entries) else None
+        text = str(value).strip()
+        if text.isdigit():
+            return self.find_entry(int(text))
+        for position, entry in enumerate(entries):
+            if text.casefold() in (entry.file.casefold(), entry.path.stem.casefold(), entry.title.casefold()):
+                return position
+        return None
+
+    def rescan(self):
+        playlists = scan_playlists(self.settings.still_ms)
+        signature = playlists_signature(playlists)
+        if signature == self.signature:
+            return
+        name = self.playlists[self.playlist][0] if self.playlists else "VIDEO"
+        file = self.current.file if self.current else None
+        self.playlists, self.signature = playlists, signature
+        self.playlist = self.find_playlist(name) or 0
+        # Keep the current entry if it still exists
+        self.index = next((position for position, entry in enumerate(self.entries) if entry.file == file), 0)
+        log.info("Files on the drive changed – %d playlist(s).", len(self.playlists))
+        if self.state == "playing" and self.current is None:
+            self.show(0, self.fade_ms)
+
+    # Picture
+
+    def fade_to(self, target, milliseconds):
+        target = BLACK if self.blackout else target
+        steps = max(1, int(milliseconds / 1000 / FADE_STEP_SECONDS))
+        start = self.brightness
+        for step in range(1, steps + 1):
+            self.brightness = round(start + (target - start) * step / steps)
+            self.mpv.set("brightness", self.brightness)
+            if step < steps:
+                time.sleep(FADE_STEP_SECONDS)
+
+    def show(self, index, fade_ms, paused=False):
+        """Fade out, load the entry, fade in (transitions through black)."""
+        entries = self.entries
+        if not entries:
+            self.stop(fade_ms)
+            return
+        self.transitioning = True
+        self.fade_to(BLACK, fade_ms / 2)
+        self.index = index % len(entries)
+        entry = entries[self.index]
+        self.mpv.set("pause", True)
+        self.mpv.command("loadfile", str(entry.path), "replace")
+        self.failed = not self.wait_for_load()
+        if self.failed:
+            log.warning("%s cannot be played – skipped.", entry.file)
+        duration = None if self.failed or entry.still else self.mpv.get("duration")
+        if duration:
+            self.durations[str(entry.path)] = int(duration * 1000)
+        self.mpv.set("panscan", 1.0 if entry.still and self.settings.fill else 0.0)
+        rotation = 0
+        if entry.still and entry.path.suffix.lower() in (".jpg", ".jpeg") and not self.mpv.get("video-params/rotate"):
+            rotation = {3: 180, 6: 90, 8: 270}.get(jpeg_orientation(entry.path), 0)
+        self.mpv.set("video-rotate", rotation)
+        self.still_elapsed_ms = 0
+        self.state = "cued" if paused else "playing"
+        if not paused:
+            self.mpv.set("pause", False)
+        self.fade_to(0, fade_ms / 2)
+        self.transitioning = False
+        self.write_status()
+
+    def wait_for_load(self):
+        """True when mpv has loaded the file; False if it cannot play it."""
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            for event in self.mpv.take_events():
+                if event.get("event") == "file-loaded":
+                    return True
+                # end-file of the previous entry has the reason "stop"; "error" means this one is broken
+                if event.get("event") == "end-file" and event.get("reason") == "error":
+                    return False
+            time.sleep(0.02)
+        return False
+
+    # Commands (names as in docs/OSC.md: /showplaypi/video/<command>)
+
+    def play(self, fade=None):
+        if self.state == "stopped" or self.current is None:
+            self.show(self.index, self.fade(fade))
+        else:
+            self.mpv.set("pause", False)
+            self.state = "playing"
+            if self.brightness != 0:
+                self.fade_to(0, self.fade(fade))
+
+    def pause(self):
+        if self.state == "playing":
+            self.mpv.set("pause", True)
+            self.state = "paused"
+
+    def toggle(self, fade=None):
+        if self.state == "playing":
+            self.pause()
+        else:
+            self.play(fade)
+
+    def stop(self, fade=None):
+        self.fade_to(BLACK, self.fade(fade))
+        self.mpv.command("stop")
+        self.state = "stopped"
+        self.index = 0
+        self.still_elapsed_ms = 0
+
+    def next(self, fade=None):
+        self.show(self.index + 1, self.fade(fade))
+
+    def previous(self, fade=None):
+        self.show(self.index - 1, self.fade(fade))
+
+    def restart(self):
+        if self.current and self.current.still:
+            self.still_elapsed_ms = 0
+        else:
+            self.mpv.command("seek", 0, "absolute")
+
+    def select(self, value, fade=None):
+        index = self.find_entry(value)
+        if index is None:
+            raise ValueError(f"no entry {value!r} in the current playlist")
+        self.show(index, self.fade(fade))
+
+    def cue(self, value):
+        index = self.find_entry(value)
+        if index is None:
+            raise ValueError(f"no entry {value!r} in the current playlist")
+        self.show(index, self.fade_ms, paused=True)
+
+    def set_playlist(self, value, fade=None):
+        position = self.find_playlist(value)
+        if position is None:
+            raise ValueError(f"no playlist {value!r}")
+        self.playlist = position
+        self.show(0, self.fade(fade))
+
+    def set_repeat(self, mode):
+        mode = str(mode).lower()
+        if mode not in ("all", "one", "off"):
+            raise ValueError("repeat accepts all, one or off")
+        self.repeat = mode
+
+    def set_fade(self, milliseconds):
+        self.fade_ms = int(number(milliseconds, self.fade_ms, 0, 60000))
+
+    def set_still_duration(self, milliseconds):
+        still_ms = int(number(milliseconds, self.settings.still_ms, 100, 86_400_000))
+        self.settings.still_ms = still_ms
+        for _, entries in self.playlists:
+            for entry in entries:
+                entry.default_still_ms = still_ms
+
+    def set_volume(self, percent, fade=None):
+        target = int(number(percent, self.volume, 0, 100))
+        steps = max(1, int(self.fade(fade, 0) / 1000 / FADE_STEP_SECONDS))
+        start = self.volume
+        for step in range(1, steps + 1):
+            self.mpv.set("volume", round(start + (target - start) * step / steps))
+            if step < steps:
+                time.sleep(FADE_STEP_SECONDS)
+        self.volume = target
+
+    def set_mute(self, value):
+        if str(value).lower() == "toggle":
+            self.mute = not self.mute
+        else:
+            self.mute = str(value).lower() in ("1", "true", "on", "yes")
+        self.mpv.set("mute", self.mute)
+
+    def playhead(self, milliseconds, from_end=False):
+        milliseconds = max(0, int(number(milliseconds, 0)))
+        entry = self.current
+        if entry is None:
+            return
+        if entry.still:
+            self.still_elapsed_ms = max(0, entry.still_ms - milliseconds) if from_end else min(milliseconds, entry.still_ms)
+        elif from_end:
+            duration = self.mpv.get("duration") or 0
+            self.mpv.command("seek", max(0, duration - milliseconds / 1000), "absolute+exact")
+        else:
+            self.mpv.command("seek", milliseconds / 1000, "absolute+exact")
+
+    def set_blackout(self, state, fade=None):
+        self.blackout = str(state).lower() in ("1", "true", "on", "yes")
+        milliseconds = self.fade(fade)
+        # fade_to keeps the picture black while the blackout flag is set
+        self.fade_to(BLACK if self.state == "stopped" else 0, milliseconds)
+
+    def fade(self, value, default=None):
+        return int(number(value, self.fade_ms if default is None else default, 0, 60000))
+
+    def handle(self, command, arguments):
+        handlers = {
+            "play": lambda: self.play(*arguments[:1]),
+            "pause": self.pause,
+            "toggle": lambda: self.toggle(*arguments[:1]),
+            "stop": lambda: self.stop(*arguments[:1]),
+            "next": lambda: self.next(*arguments[:1]),
+            "previous": lambda: self.previous(*arguments[:1]),
+            "restart": self.restart,
+            "select": lambda: self.select(*arguments[:2]),
+            "cue": lambda: self.cue(*arguments[:1]),
+            "playlist": lambda: self.set_playlist(*arguments[:2]),
+            "repeat": lambda: self.set_repeat(*arguments[:1]),
+            "fade": lambda: self.set_fade(*arguments[:1]),
+            "stillduration": lambda: self.set_still_duration(*arguments[:1]),
+            "volume": lambda: self.set_volume(*arguments[:2]),
+            "mute": lambda: self.set_mute(*arguments[:1]),
+            "playhead": lambda: self.playhead(*arguments[:1]),
+            "playhead/end": lambda: self.playhead(*arguments[:1], from_end=True),
+            "blackout": lambda: self.set_blackout(*arguments[:2]),
+            "list": self.write_status,
+            "status": self.write_status,
+        }
+        if command not in handlers:
+            raise ValueError(f"unknown video command {command!r}")
+        handlers[command]()
+        self.write_status()
+
+    # Timing
+
+    def times(self):
+        """(elapsed, remaining) of the current entry in milliseconds."""
+        entry = self.current
+        if entry is None:
+            return 0, 0
+        if entry.still:
+            return int(self.still_elapsed_ms), int(max(0, entry.still_ms - self.still_elapsed_ms))
+        position = self.mpv.get("time-pos") or 0
+        duration = self.mpv.get("duration") or 0
+        return int(position * 1000), int(max(0, duration - position) * 1000)
+
+    def advance(self):
+        entries = self.entries
+        if self.repeat == "one":
+            self.show(self.index, self.fade_ms)
+        elif self.index + 1 < len(entries) or self.repeat == "all":
+            self.show(self.index + 1, self.fade_ms)
+        else:
+            self.stop()
+
+    def tick(self):
+        now = time.monotonic()
+        elapsed_tick = (now - self.last_tick) * 1000
+        self.last_tick = now
+        events = self.mpv.take_events()
+        if self.state != "playing" or self.transitioning or self.current is None:
+            return
+        if self.failed:
+            self.advance()
+            return
+        if self.current.still:
+            self.still_elapsed_ms += elapsed_tick
+            if self.still_elapsed_ms >= self.current.still_ms - self.fade_ms / 2:
+                self.advance()
+            return
+        # Videos: start the fade-out before the end, so the transition is not a frozen last frame
+        _, remaining = self.times()
+        ended = any(event.get("event") == "end-file" for event in events) or self.mpv.get("eof-reached")
+        duration = self.mpv.get("duration") or 0
+        if ended or (duration and remaining <= self.fade_ms / 2):
+            self.advance()
+
+    def write_status(self):
+        entry = self.current
+        elapsed, remaining = self.times() if entry else (0, 0)
+        status = {
+            "state": self.state, "playlist": self.playlists[self.playlist][0] if self.playlists else None,
+            "number": self.index + 1 if entry else None, "file": entry.file if entry else None,
+            "title": entry.title if entry else None,
+            "type": ("still" if entry.still else "video") if entry else None,
+            "elapsed": elapsed, "remaining": remaining, "repeat": self.repeat, "fade": self.fade_ms,
+            "volume": self.volume, "mute": self.mute, "blackout": self.blackout,
+            "playlists": [{"number": number, "name": name, "default": number == 1,
+                           "entries": [item.to_json(position, self.durations.get(str(item.path)))
+                                       for position, item in enumerate(entries, 1)]}
+                          for number, (name, entries) in enumerate(self.playlists, 1)],
+        }
+        temporary = STATUS_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps(status), encoding="utf-8")
+        temporary.replace(STATUS_FILE)
+
+
+def main():
+    wait_for_x()
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    CONTROL_SOCKET.unlink(missing_ok=True)
+    control = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    control.bind(str(CONTROL_SOCKET))
+    control.setblocking(False)
+
+    player = Player()
+    log.info("Video mode started: %d playlist(s), %d entries in playlist 1.",
+             len(player.playlists), len(player.playlists[0][1]) if player.playlists else 0)
+    next_rescan = next_status = 0.0
+
+    while True:
+        try:
+            while True:
+                data = control.recv(65536)
+                message = json.loads(data)
+                command = str(message.get("command", ""))
+                try:
+                    player.handle(command, list(message.get("args", [])))
+                except (ValueError, TypeError) as error:
+                    log.warning("Video command %s rejected: %s", command, error)
+        except BlockingIOError:
+            pass
+        except json.JSONDecodeError:
+            log.warning("Invalid video command ignored.")
+
+        player.tick()
+        now = time.monotonic()
+        if now >= next_rescan:
+            player.rescan()
+            next_rescan = now + RESCAN_SECONDS
+        if now >= next_status:
+            player.write_status()
+            next_status = now + STATUS_SECONDS
+        time.sleep(TICK_SECONDS)
+
+
+if __name__ == "__main__":
+    main()

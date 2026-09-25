@@ -1,0 +1,13 @@
+[Unit]
+Description=ShowPlayPI USB drive: hands the media partition to a connected computer
+After=showplaypi-usb-gadget.service showplaypi-media.service
+BindsTo=showplaypi-usb-gadget.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/showplaypi-usb-drive
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

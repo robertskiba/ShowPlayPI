@@ -4,7 +4,7 @@ set -u
 
 export LC_ALL=C
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 PROFILE="showplaypi-ethernet"
 INTERFACE="eth0"
 
@@ -239,6 +239,12 @@ fi
 log_message "Network profile prepared successfully in $MODE mode."
 
 if [ "${1:-}" = "--apply" ]; then
-    log_message "Activating network profile: $PROFILE"
-    nmcli connection up "$PROFILE"
+    if [ "$(cat "/sys/class/net/$INTERFACE/carrier" 2>/dev/null)" != "1" ]; then
+        # No cable is not an error (e.g. configuration over USB-C): the profile connects automatically
+        # as soon as a cable is plugged in
+        log_message "No network cable connected – the profile is activated when a cable is plugged in."
+    else
+        log_message "Activating network profile: $PROFILE"
+        nmcli connection up "$PROFILE"
+    fi
 fi

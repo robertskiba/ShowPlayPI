@@ -1,0 +1,30 @@
+#!/bin/bash
+# Makes sure a container image is available in Podman, without downloading it:
+#   showplaypi-container-image <image> <archive>
+# If Podman does not know the image yet, it is loaded from /usr/share/showplaypi/containers/<archive>, which
+# is part of the ShowPlayPI image – so Ontime works offline right away. Updates are a separate step.
+
+IMAGE="$1"
+ARCHIVE="/usr/share/showplaypi/containers/$2"
+
+log_message() {
+    # Runs as a systemd service: the output goes to the journal
+    echo "$*"
+}
+
+if podman image exists "$IMAGE"; then
+    exit 0
+fi
+
+if [ ! -s "$ARCHIVE" ]; then
+    log_message "Container image $IMAGE is missing and $ARCHIVE does not exist."
+    exit 1
+fi
+
+log_message "Loading container image $IMAGE from $ARCHIVE (first start) ..."
+if podman load --quiet --input "$ARCHIVE" && podman image exists "$IMAGE"; then
+    log_message "Container image $IMAGE loaded."
+else
+    log_message "Container image $IMAGE could not be loaded from $ARCHIVE."
+    exit 1
+fi

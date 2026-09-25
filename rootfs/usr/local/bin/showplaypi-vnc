@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 DEFAULT_PORT=5900
 PASSWORD_FILE="/home/admin/.vnc/passwd"
 XAUTHORITY_FILE="/home/admin/.Xauthority"

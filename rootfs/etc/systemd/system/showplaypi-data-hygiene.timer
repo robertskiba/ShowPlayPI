@@ -1,0 +1,10 @@
+[Unit]
+Description=ShowPlayPI browser data hygiene, checked daily
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=1d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

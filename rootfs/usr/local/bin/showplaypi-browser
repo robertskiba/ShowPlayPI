@@ -1,8 +1,9 @@
 #!/bin/bash
 
-CONFIG="/boot/firmware/showplaypi.ini"
+CONFIG="/etc/showplaypi/showplaypi.ini"
 DEFAULT_URL="file:///home/admin/kiosk/setup.html"
 PROFILE_DIR="/home/admin/.config/chromium-kiosk"
+CACHE_DIR="/home/admin/.cache/chromium-kiosk"
 
 # Refresh the local setup page with current device and network information.
 /usr/local/bin/showplaypi-write-setup-page || \
@@ -89,11 +90,17 @@ if [ "$1" = "--check" ]; then
     exit 0
 fi
 
+# Clean browser after a start page change in the configuration; caches removed at least every 14 days.
+if ! pgrep -u "$(id -u)" -x chromium >/dev/null 2>&1; then
+    /usr/local/bin/showplaypi-data-hygiene prepare >/dev/null || \
+        logger -t showplaypi-browser "Browser data hygiene failed."
+fi
+
 # Idle reset with IDLE_CLEAR_SESSION=yes: start with an empty profile (no cookies, logins, form data).
 CLEAR_PROFILE_FILE="/run/showplaypi/clear-profile"
 
 if [ -e "$CLEAR_PROFILE_FILE" ] && ! pgrep -u "$(id -u)" -x chromium >/dev/null 2>&1; then
-    rm -rf "$PROFILE_DIR"
+    rm -rf "$PROFILE_DIR" "$CACHE_DIR"
     mkdir -p -m 700 "$PROFILE_DIR"
     rm -f "$CLEAR_PROFILE_FILE"
     logger -t showplaypi-browser "Browser session cleared."

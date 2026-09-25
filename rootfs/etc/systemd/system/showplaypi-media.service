@@ -1,0 +1,16 @@
+[Unit]
+Description=ShowPlayPI media partition and configuration
+After=local-fs.target
+Before=showplaypi-usb-gadget.service showplaypi-system-config.service showplaypi-network-config.service
+Before=showplaypi-kiosk.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/showplaypi-media setup
+ExecStop=-/usr/local/sbin/showplaypi-media release
+# The first start enlarges the Linux partition
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target
