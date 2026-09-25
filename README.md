@@ -8,10 +8,10 @@ dashboard, a schedule, a sign), a looping video and slideshow player, a Companio
 timer display. You configure it with a simple Windows program or a text file – no Linux, no command line –
 and control it live via OSC.
 
-> **Status: beta.** ShowPlayPI is in active development. The latest release is `1.0.0-beta.2`; this README
-> describes the current development state (upcoming `1.0.0-beta.3`), including first versions of the video,
-> Companion and Ontime modes and the audio player. The first stable release will be 1.0.0. See [known issues](#known-issues)
-> before using it at a show, and the [roadmap](ROADMAP.md) for what comes next.
+> **Status: beta.** ShowPlayPI is in active development. The current version is `1.0.0-beta.3`, with first
+> versions of the video, Companion and Ontime modes and the audio player. The first stable release will be
+> 1.0.0. See [known issues](#known-issues) before using it at a show, and the [roadmap](ROADMAP.md) for what
+> comes next.
 
 ## Modes
 
@@ -35,7 +35,7 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
   the start page and can clear cookies and logins for the next visitor
 - **Video and slideshow player:** plays the folder `VIDEO` in alphabetical order in an endless loop, still
   images with their own display time (`Sponsors [15sec].jpg`), subfolders as further playlists, hardware
-  decoding of H.265/HEVC up to 4K60
+  decoding of H.265/HEVC up to 4K60 (Pi 4 and Pi 5) and of H.264 up to 1080p60 (Pi 4)
 - **Companion and Ontime on the device** – no extra computer needed; their web interfaces are announced on
   the network and appear in the Windows network view
 - **Audio player:** background music with playlists and jingles on command – a jingle ducks or pauses the
@@ -231,9 +231,15 @@ Copy videos (MP4, MOV, MKV, WebM …) and still images (JPG, PNG, WebP) into the
 `010_Intro.mp4`, `020_Sponsors [15sec].jpg`, `030_Trailer.mp4`. Subfolders of `VIDEO` are further playlists,
 switchable via OSC. New files are picked up while playing.
 
-**Best format: H.265/HEVC** – the Pi decodes it in hardware (on the Pi 5 up to 4K60 without dropped frames).
-The Pi 5 has no hardware decoder for H.264: H.264 videos should not exceed 1080p with 30 frames per second
-there. Sound plays on all outputs at once (see [features](#features)).
+Which formats the Pi decodes in hardware:
+
+| | H.265/HEVC | H.264 |
+|---|---|---|
+| **Raspberry Pi 5** | in hardware, up to 4K60 | **no hardware decoder** – in software, smooth up to 1080p30 |
+| **Raspberry Pi 4** | in hardware, up to 4K60 | in hardware, up to 1080p60 |
+
+**Best format: H.265/HEVC** – it plays in hardware on both models (on the Pi 5 measured up to 4K60 without
+dropped frames). Sound plays on all outputs at once (see [features](#features)).
 
 ### Companion
 
@@ -307,7 +313,7 @@ In this beta:
 |---|---|
 | The setup page appears instead of my page | Check `URL` in `[BROWSER]` – it must start with `http://`, `https://` or `file://`. |
 | Companion or Ontime mode shows another page | An own `URL` in `[BROWSER]` replaces their view – leave it empty. |
-| Videos stutter | Convert them to H.265/HEVC; on a Pi 5, H.264 is only smooth up to 1080p30. |
+| Videos stutter | Convert them to H.265/HEVC; on a Pi 5, H.264 is only smooth up to 1080p30 (the Pi 4 decodes H.264 in hardware up to 1080p60). |
 | Not reachable after setting a static IP | Power off, put the SD card into a computer, fix `[NETWORK]` or set `MODE=dhcp`. |
 | The page does not come back after a server outage | Make sure `WATCHDOG_ENABLED=yes`. |
 | No picture on the display | Use the HDMI port next to USB-C; try `[DISPLAY] MODE=fixed` with a resolution your display supports. |
