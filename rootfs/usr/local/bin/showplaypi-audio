@@ -1,0 +1,615 @@
+#!/usr/bin/python3
+"""ShowPlayPI audio player: background playlists and jingles from the SHOWPLAYPI drive.
+
+An optional extra next to any mode ([AUDIO] ENABLED=yes). Sound goes to every output at once (PipeWire, see /etc/pipewire/pipewire.conf.d/showplaypi-all-outputs.conf).
+
+- AUDIO/          jingles: single files, played on demand
+- AUDIO/LOOP/     playlist 1 (default); its subfolders (one level) follow alphabetically as playlists 2, 3 …
+- Two mpv players (no picture): one for the playlist, one for jingles. While a jingle plays, the playlist is
+  ducked to a percentage of its volume or paused, and continues afterwards.
+- Fades run in the background, so a fade never blocks other commands.
+- Commands: JSON datagrams on /run/showplaypi/audio.sock, e.g. {"command": "loop/play", "args": [2000]};
+  names and arguments as in docs/OSC.md (/showplaypi/audio/<command>). Times in milliseconds, volumes in
+  percent. State: /run/showplaypi/audio-status.json
+"""
+
+import json
+import logging
+import random
+import signal
+import socket
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/showplaypi")
+from showplaypi_mpv import Mpv  # noqa: E402
+
+CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
+AUDIO_DIR = Path("/media/showplaypi/AUDIO")
+LOOP_DIR = AUDIO_DIR / "LOOP"
+RUNTIME_DIR = Path("/run/showplaypi")
+CONTROL_SOCKET = RUNTIME_DIR / "audio.sock"
+LOOP_SOCKET = RUNTIME_DIR / "mpv-audio-loop.sock"
+JINGLE_SOCKET = RUNTIME_DIR / "mpv-audio-jingle.sock"
+STATUS_FILE = RUNTIME_DIR / "audio-status.json"
+
+AUDIO_TYPES = {".wav", ".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".aif", ".aiff", ".wma"}
+TICK_SECONDS = 0.05
+RESCAN_SECONDS = 3.0
+STATUS_SECONDS = 1.0
+# Ducking and restoring the playlist around a jingle
+DUCK_MS = 300
+RESTORE_MS = 800
+# mpv reports "idle" for a moment after loading a file; the end of playback is only checked after this time
+START_GRACE_SECONDS = 1.0
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("showplaypi-audio")
+
+
+# --- Configuration --------------------------------------------------------------------------------------------
+
+def ini_section(name):
+    values = {}
+    section = ""
+    try:
+        lines = CONFIG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return values
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+        elif section == name and "=" in line:
+            key, value = line.split("=", 1)
+            values.setdefault(key.strip().upper(), value.strip())
+    return values
+
+
+def number(value, default, minimum=None, maximum=None):
+    try:
+        result = float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+    if isinstance(value, bool):
+        return default
+    if minimum is not None and result < minimum:
+        return default
+    if maximum is not None and result > maximum:
+        return default
+    return result
+
+
+def yes(value):
+    return str(value).strip().lower() in ("1", "yes", "true", "on")
+
+
+# --- Files ----------------------------------------------------------------------------------------------------
+
+class Track:
+    def __init__(self, path):
+        self.path = path
+        self.file = path.name
+        self.title = path.stem
+
+    def to_json(self, position, durations):
+        return {"number": position, "file": self.file, "title": self.title,
+                "duration": durations.get(str(self.path))}
+
+
+def audio_files(folder):
+    try:
+        files = [path for path in folder.iterdir()
+                 if path.is_file() and not path.name.startswith(".") and path.suffix.lower() in AUDIO_TYPES]
+    except OSError:
+        return []
+    return [Track(path) for path in sorted(files, key=lambda path: path.name.casefold())]
+
+
+def scan():
+    """(jingles, [(playlist name, tracks), …]) – LOOP first, then its subfolders alphabetically."""
+    jingles = audio_files(AUDIO_DIR)
+    playlists = [("LOOP", audio_files(LOOP_DIR))]
+    try:
+        folders = sorted((path for path in LOOP_DIR.iterdir() if path.is_dir() and not path.name.startswith(".")),
+                         key=lambda path: path.name.casefold())
+    except OSError:
+        folders = []
+    playlists += [(folder.name, audio_files(folder)) for folder in folders]
+    return jingles, playlists
+
+
+def signature(jingles, playlists):
+    return ([track.file for track in jingles], [(name, [track.file for track in tracks]) for name, tracks in playlists])
+
+
+def find(items, value, key):
+    """Index of an item by number (1-based) or by name (case-insensitive, with or without extension)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        index = int(value) - 1
+        return index if 0 <= index < len(items) else None
+    text = str(value).strip()
+    if text.isdigit():
+        return find(items, int(text), key)
+    for index, item in enumerate(items):
+        names = key(item)
+        if text.casefold() in (name.casefold() for name in names):
+            return index
+    return None
+
+
+# --- Fades ----------------------------------------------------------------------------------------------------
+
+class Tween:
+    """A value that moves to a target over a time; on_done runs once it has arrived."""
+
+    def __init__(self, value):
+        self.value = value
+        self.start = value
+        self.target = value
+        self.begin = 0.0
+        self.duration = 0.0
+        self.on_done = None
+
+    def to(self, target, milliseconds, on_done=None):
+        self.start = self.value
+        self.target = target
+        self.begin = time.monotonic()
+        self.duration = max(0.0, milliseconds / 1000)
+        self.on_done = on_done
+        if self.duration == 0:
+            self.update()
+
+    def update(self):
+        if self.value == self.target and self.on_done is None:
+            return
+        progress = 1.0 if self.duration == 0 else min(1.0, (time.monotonic() - self.begin) / self.duration)
+        self.value = self.start + (self.target - self.start) * progress
+        if progress >= 1.0:
+            self.value = self.target
+            done, self.on_done = self.on_done, None
+            if done:
+                done()
+
+
+# --- Player ---------------------------------------------------------------------------------------------------
+
+def start_mpv(socket_path, volume):
+    return Mpv(socket_path, [
+        "--no-config", "--idle=yes", "--no-video", "--no-terminal", "--audio-display=no",
+        "--ao=pipewire,alsa", "--gapless-audio=weak", f"--volume={volume}",
+    ])
+
+
+class AudioPlayer:
+    def __init__(self):
+        settings = ini_section("AUDIO")
+        self.master = int(number(settings.get("VOLUME"), 100, 0, 100))
+        self.loop_volume = int(number(settings.get("LOOP_VOLUME"), 80, 0, 100))
+        self.jingle_volume = int(number(settings.get("JINGLE_VOLUME"), 100, 0, 100))
+        mode = settings.get("JINGLE_MODE", "duck").lower()
+        self.jingle_mode = mode if mode in ("duck", "pause") else "duck"
+        self.duck_level = int(number(settings.get("DUCK_LEVEL"), 30, 0, 100))
+        repeat = settings.get("REPEAT", "all").lower()
+        self.repeat = repeat if repeat in ("off", "all", "one") else "all"
+        self.shuffle = yes(settings.get("SHUFFLE", "no"))
+        self.mute = False
+
+        self.loop = start_mpv(LOOP_SOCKET, 0)
+        self.jingle = start_mpv(JINGLE_SOCKET, 0)
+
+        self.jingles, self.playlists = scan()
+        self.signature = signature(self.jingles, self.playlists)
+        self.playlist = 0
+        self.loaded = None  # (playlist index, file order) currently in mpv
+        self.loop_state = "stopped"
+        self.jingle_state = "stopped"
+        self.jingle_file = None
+        self.resume_after_jingle = False
+        self.durations = {}
+
+        # Fade levels (0..1) and the duck level of the playlist
+        self.loop_fade = Tween(1.0)
+        self.jingle_fade = Tween(1.0)
+        self.duck = Tween(1.0)
+        # Volume changes with a fade: (tween, apply step)
+        self.volume_tweens = []
+        self.loop_started = self.jingle_started_at = 0.0
+
+        self.apply_volumes()
+        if yes(settings.get("AUTOSTART", "no")):
+            self.loop_play(0)
+
+    # Volumes
+
+    def apply_volumes(self):
+        master = 0 if self.mute else self.master / 100
+        loop = self.loop_volume * master * self.loop_fade.value * self.duck.value
+        jingle = self.jingle_volume * master * self.jingle_fade.value
+        self.loop.set("volume", round(loop, 1))
+        self.jingle.set("volume", round(jingle, 1))
+
+    # Playlist
+
+    @property
+    def tracks(self):
+        return self.playlists[self.playlist][1] if self.playlists else []
+
+    def load_playlist(self, start=0):
+        """Puts the current playlist into mpv (paused); start = index in alphabetical order."""
+        tracks = self.tracks
+        if not tracks:
+            self.loaded = None
+            return False
+        order = list(range(len(tracks)))
+        if self.shuffle:
+            random.shuffle(order)
+            order.remove(start)
+            order.insert(0, start)
+        self.loop.set("pause", True)
+        self.loop.command("loadfile", str(tracks[order[0]].path), "replace")
+        for index in order[1:]:
+            self.loop.command("loadfile", str(tracks[index].path), "append")
+        self.loop.set("loop-playlist", "inf" if self.repeat == "all" else "no")
+        self.loop.set("loop-file", "inf" if self.repeat == "one" else "no")
+        self.loaded = (self.playlist, order)
+        return True
+
+    def current_track(self):
+        if self.loaded is None or self.loop_state == "stopped":
+            return None
+        position = self.loop.get("playlist-pos")
+        if position is None or position < 0 or position >= len(self.loaded[1]):
+            return None
+        index = self.loaded[1][position]
+        return index, self.tracks[index] if index < len(self.tracks) else None
+
+    def loop_play(self, fade=0):
+        if self.loop_state == "playing":
+            return
+        if self.loop_state == "stopped" or self.loaded is None or self.loaded[0] != self.playlist:
+            if not self.load_playlist(0):
+                log.info("Playlist %s is empty.", self.playlists[self.playlist][0] if self.playlists else "LOOP")
+                return
+        self.loop_fade.to(0.0, 0)
+        self.loop_fade.to(1.0, fade)
+        self.loop.set("pause", False)
+        self.loop_state = "playing"
+        self.loop_started = time.monotonic()
+
+    def loop_pause(self, fade=0):
+        if self.loop_state != "playing":
+            return
+
+        def done():
+            # Only if nothing else happened meanwhile (e.g. play during the fade)
+            if self.loop_state == "paused":
+                self.loop.set("pause", True)
+                self.loop_fade.to(1.0, 0)
+
+        self.loop_state = "paused"
+        self.loop_fade.to(0.0, fade, done)
+
+    def loop_stop(self, fade=0):
+        if self.loop_state == "stopped":
+            return
+
+        def done():
+            if self.loop_state == "stopped":
+                self.loop.set("pause", True)
+                self.loop.command("stop")
+                self.loaded = None
+                self.loop_fade.to(1.0, 0)
+
+        self.loop_state = "stopped"
+        self.resume_after_jingle = False
+        self.loop_fade.to(0.0, fade, done)
+
+    def loop_select(self, value):
+        index = find(self.tracks, value, lambda track: (track.file, track.title))
+        if index is None:
+            raise ValueError(f"no track {value!r} in playlist {self.playlists[self.playlist][0]}")
+        if self.loaded is None or self.loaded[0] != self.playlist or self.loop_state == "stopped":
+            self.load_playlist(index)
+        else:
+            self.loop.command("playlist-play-index", self.loaded[1].index(index))
+        self.loop_fade.to(1.0, 0)
+        self.loop.set("pause", False)
+        self.loop_state = "playing"
+        self.loop_started = time.monotonic()
+
+    def loop_playlist(self, value):
+        names = [(name,) for name, _ in self.playlists]
+        index = find(names, value, lambda item: item)
+        if index is None:
+            raise ValueError(f"no playlist {value!r}")
+        playing = self.loop_state == "playing"
+        self.playlist = index
+        self.loaded = None
+        if playing:
+            self.loop_state = "stopped"
+            self.loop_play(0)
+        else:
+            self.loop_state = "stopped"
+            self.loop.command("stop")
+
+    def loop_repeat(self, value):
+        mode = str(value).lower()
+        if mode not in ("off", "all", "one"):
+            raise ValueError("repeat accepts off, all or one")
+        self.repeat = mode
+        self.loop.set("loop-playlist", "inf" if mode == "all" else "no")
+        self.loop.set("loop-file", "inf" if mode == "one" else "no")
+
+    def loop_shuffle(self, value):
+        self.shuffle = yes(value)
+        # Takes effect when the playlist is loaded the next time (start, playlist switch)
+
+    def loop_playhead(self, milliseconds, from_end=False):
+        if self.loop_state == "stopped":
+            return
+        seconds = max(0.0, number(milliseconds, 0) / 1000)
+        if from_end:
+            duration = self.loop.get("duration") or 0
+            seconds = max(0.0, duration - seconds)
+        self.loop.command("seek", seconds, "absolute+exact")
+
+    # Jingles
+
+    def jingle_play(self, value, volume=None):
+        index = find(self.jingles, value, lambda track: (track.file, track.title))
+        if index is None:
+            raise ValueError(f"no jingle {value!r}")
+        track = self.jingles[index]
+        if volume is not None:
+            self.jingle_volume = int(number(volume, self.jingle_volume, 0, 100))
+        self.jingle_fade.to(1.0, 0)
+        self.jingle.command("loadfile", str(track.path), "replace")
+        self.jingle.set("pause", False)
+        self.apply_volumes()
+        if self.jingle_state != "playing":
+            self.jingle_started()
+        self.jingle_state = "playing"
+        self.jingle_file = track.file
+        self.jingle_started_at = time.monotonic()
+
+    def jingle_started(self):
+        if self.loop_state != "playing":
+            return
+        if self.jingle_mode == "pause":
+            self.resume_after_jingle = True
+            self.loop_pause(DUCK_MS)
+        else:
+            self.duck.to(self.duck_level / 100, DUCK_MS)
+
+    def jingle_ended(self):
+        self.jingle_state = "stopped"
+        self.jingle_file = None
+        self.duck.to(1.0, RESTORE_MS)
+        if self.resume_after_jingle:
+            self.resume_after_jingle = False
+            self.loop_play(RESTORE_MS)
+
+    def jingle_stop(self, fade=0):
+        if self.jingle_state != "playing":
+            return
+
+        def done():
+            if self.jingle_state == "playing":
+                self.jingle.command("stop")
+                self.jingle_fade.to(1.0, 0)
+
+        self.jingle_fade.to(0.0, fade, done)
+
+    def set_jingle_mode(self, mode, percent=None):
+        mode = str(mode).lower()
+        if mode not in ("duck", "pause"):
+            raise ValueError("jingle mode accepts duck or pause")
+        self.jingle_mode = mode
+        if percent is not None:
+            self.duck_level = int(number(percent, self.duck_level, 0, 100))
+
+    # All audio
+
+    def fade_volume(self, attribute, percent, fade):
+        """Volume changes with an optional fade: ramps the stored volume in the background."""
+        target = int(number(percent, getattr(self, attribute), 0, 100))
+        tween = Tween(float(getattr(self, attribute)))
+
+        def step():
+            setattr(self, attribute, tween.value)
+
+        tween.to(float(target), fade)
+        self.volume_tweens.append((tween, step))
+
+    def set_mute(self, value):
+        self.mute = (not self.mute) if str(value).lower() == "toggle" else yes(value)
+
+    def stop_all(self, fade=0):
+        self.loop_stop(fade)
+        self.jingle_stop(fade)
+
+    # Commands (/showplaypi/audio/<command>, docs/OSC.md)
+
+    def handle(self, command, arguments):
+        def fade(position=0):
+            return int(number(arguments[position], 0, 0, 600000)) if len(arguments) > position else 0
+
+        def argument(position=0):
+            if len(arguments) <= position:
+                raise ValueError(f"{command} needs an argument")
+            return arguments[position]
+
+        handlers = {
+            "loop/play": lambda: self.loop_play(fade()),
+            "loop/pause": lambda: self.loop_pause(fade()),
+            "loop/toggle": lambda: (self.loop_pause(fade()) if self.loop_state == "playing"
+                                    else self.loop_play(fade())),
+            "loop/stop": lambda: self.loop_stop(fade()),
+            "loop/next": lambda: self.loop.command("playlist-next", "force") if self.loop_state != "stopped" else None,
+            "loop/previous": lambda: self.loop.command("playlist-prev", "force") if self.loop_state != "stopped" else None,
+            "loop/restart": lambda: self.loop_playhead(0),
+            "loop/playhead": lambda: self.loop_playhead(argument()),
+            "loop/playhead/end": lambda: self.loop_playhead(argument(), from_end=True),
+            "loop/select": lambda: self.loop_select(argument()),
+            "loop/playlist": lambda: self.loop_playlist(argument()),
+            "loop/repeat": lambda: self.loop_repeat(argument()),
+            "loop/shuffle": lambda: self.loop_shuffle(argument()),
+            "loop/volume": lambda: self.fade_volume("loop_volume", argument(), fade(1)),
+            "jingle/play": lambda: self.jingle_play(argument(), arguments[1] if len(arguments) > 1 else None),
+            "jingle/stop": lambda: self.jingle_stop(fade()),
+            "jingle/volume": lambda: self.fade_volume("jingle_volume", argument(), 0),
+            "jingle/mode": lambda: self.set_jingle_mode(argument(), arguments[1] if len(arguments) > 1 else None),
+            "volume": lambda: self.fade_volume("master", argument(), fade(1)),
+            "mute": lambda: self.set_mute(argument()),
+            "stopall": lambda: self.stop_all(fade()),
+            "list": lambda: None,
+            "status": lambda: None,
+        }
+        if command not in handlers:
+            raise ValueError(f"unknown audio command {command!r}")
+        handlers[command]()
+        self.apply_volumes()
+        self.write_status()
+
+    # Running
+
+    def tick(self):
+        for tween in (self.loop_fade, self.jingle_fade, self.duck):
+            tween.update()
+        for tween, step in list(self.volume_tweens):
+            tween.update()
+            step()
+            if tween.value == tween.target:
+                self.volume_tweens.remove((tween, step))
+
+        # Jingle finished (mpv is idle again)
+        now = time.monotonic()
+        self.jingle.take_events()
+        if (self.jingle_state == "playing" and now - self.jingle_started_at > START_GRACE_SECONDS
+                and self.jingle.get("idle-active")):
+            self.jingle_ended()
+
+        # Playlist played once (repeat off): mpv is idle at its end
+        self.loop.take_events()
+        if (self.loop_state == "playing" and now - self.loop_started > START_GRACE_SECONDS
+                and self.loop.get("idle-active")):
+            self.loop_state = "stopped"
+            self.loaded = None
+
+        # Remember durations for the file lists
+        for player, state in ((self.loop, self.loop_state), (self.jingle, self.jingle_state)):
+            if state == "playing":
+                path, duration = player.get("path"), player.get("duration")
+                if path and duration:
+                    self.durations[path] = int(duration * 1000)
+
+        self.apply_volumes()
+
+    def rescan(self):
+        jingles, playlists = scan()
+        new_signature = signature(jingles, playlists)
+        if new_signature == self.signature:
+            return
+        name = self.playlists[self.playlist][0] if self.playlists else "LOOP"
+        self.jingles, self.playlists, self.signature = jingles, playlists, new_signature
+        self.playlist = next((index for index, (other, _) in enumerate(playlists) if other == name), 0)
+        # A playing playlist keeps its files until it is loaded again (next start or playlist switch)
+        if self.loop_state == "stopped":
+            self.loaded = None
+        log.info("Audio files changed – %d jingle(s), %d playlist(s).", len(jingles), len(playlists))
+
+    def times(self, player, state):
+        if state == "stopped":
+            return 0, 0
+        position = player.get("time-pos") or 0
+        duration = player.get("duration") or 0
+        return int(position * 1000), int(max(0, duration - position) * 1000)
+
+    def write_status(self):
+        current = self.current_track()
+        elapsed, remaining = self.times(self.loop, self.loop_state)
+        jingle_elapsed, jingle_remaining = self.times(self.jingle, self.jingle_state)
+        status = {
+            "loop": {
+                "state": self.loop_state,
+                "playlist": self.playlists[self.playlist][0] if self.playlists else None,
+                "number": current[0] + 1 if current else None,
+                "file": current[1].file if current and current[1] else None,
+                "title": current[1].title if current and current[1] else None,
+                "elapsed": elapsed, "remaining": remaining,
+                "volume": round(self.loop_volume), "repeat": self.repeat, "shuffle": self.shuffle,
+            },
+            "jingle": {
+                "state": self.jingle_state, "file": self.jingle_file,
+                "elapsed": jingle_elapsed, "remaining": jingle_remaining,
+                "volume": round(self.jingle_volume), "mode": self.jingle_mode, "duck": self.duck_level,
+            },
+            "volume": round(self.master),
+            "mute": self.mute,
+            "jingles": [track.to_json(position, self.durations)
+                        for position, track in enumerate(self.jingles, 1)],
+            "playlists": [{"number": number_, "name": name, "default": number_ == 1,
+                           "tracks": [track.to_json(position, self.durations)
+                                      for position, track in enumerate(tracks, 1)]}
+                          for number_, (name, tracks) in enumerate(self.playlists, 1)],
+        }
+        temporary = STATUS_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps(status), encoding="utf-8")
+        temporary.replace(STATUS_FILE)
+
+    def shut_down(self):
+        for player in (self.loop, self.jingle):
+            try:
+                player.command("quit")
+            except (OSError, RuntimeError):
+                pass
+
+
+def main():
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    CONTROL_SOCKET.unlink(missing_ok=True)
+    control = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    control.bind(str(CONTROL_SOCKET))
+    control.setblocking(False)
+
+    player = AudioPlayer()
+    log.info("Audio player started: %d jingle(s), %d playlist(s), %d track(s) in playlist 1.",
+             len(player.jingles), len(player.playlists), len(player.playlists[0][1]))
+
+    def stop(*_):
+        player.shut_down()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    next_rescan = next_status = 0.0
+
+    while True:
+        try:
+            while True:
+                data = control.recv(65536)
+                try:
+                    message = json.loads(data)
+                    command = str(message.get("command", ""))
+                    player.handle(command, list(message.get("args", [])))
+                except (ValueError, TypeError) as error:
+                    log.warning("Audio command rejected: %s", error)
+        except BlockingIOError:
+            pass
+
+        player.tick()
+        now = time.monotonic()
+        if now >= next_rescan:
+            player.rescan()
+            next_rescan = now + RESCAN_SECONDS
+        if now >= next_status:
+            player.write_status()
+            next_status = now + STATUS_SECONDS
+        time.sleep(TICK_SECONDS)
+
+
+if __name__ == "__main__":
+    main()

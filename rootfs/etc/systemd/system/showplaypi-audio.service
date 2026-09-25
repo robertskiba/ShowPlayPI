@@ -1,0 +1,19 @@
+[Unit]
+Description=ShowPlayPI audio player (background playlists and jingles)
+# Needs the SHOWPLAYPI drive (AUDIO folder) and PipeWire of the user admin (runs from boot, linger)
+After=showplaypi-media.service showplaypi-mode.service user@1000.service
+# Only with [AUDIO] ENABLED=yes – an optional extra in any mode (see showplaypi-mode)
+ConditionPathExists=/run/showplaypi/audio-player
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+SupplementaryGroups=audio
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/local/bin/showplaypi-audio
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=ShowPlayPI UPnP announcement of the web interfaces (Companion, Ontime)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# No privileges needed: SSDP (UDP 1900) and the device descriptions (TCP 23879) are unprivileged ports
+DynamicUser=yes
+ExecStart=/usr/local/bin/showplaypi-upnp
+# Exits by itself when switched off ([DISCOVERY] UPNP=no)
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

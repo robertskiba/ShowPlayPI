@@ -18,10 +18,14 @@ enable showplaypi-kiosk.service
 enable showplaypi-vnc.service
 enable showplaypi-web-watchdog.service
 enable showplaypi-osc.service
+# Announces the running web interfaces (Companion, Ontime) via UPnP, e.g. for Windows Explorer
+enable showplaypi-upnp.service
 enable showplaypi-idle.service
 # Operating mode: showplaypi-mode.service writes flags that the units of each mode check
 enable showplaypi-mode.service
 enable showplaypi-video.service
+# Audio player: an optional extra in any mode, [AUDIO] ENABLED=yes (the unit checks the flag from showplaypi-mode)
+enable showplaypi-audio.service
 # Companion mode (native, /opt/companion) and Ontime mode (container in Podman)
 enable showplaypi-companion.service
 enable showplaypi-ontime.service

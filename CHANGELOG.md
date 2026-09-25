@@ -31,16 +31,27 @@ versions follow [Semantic Versioning](https://semver.org/).
   (touch, mouse, keyboard); all browser commands keep working. OSC: `/showplaypi/companion/emulators` replies
   with the list of emulators (for a dropdown in a controller), `/showplaypi/companion/emulator <id|name>`,
   `/showplaypi/companion/tablet [pages] [columns] [rows]`, `/showplaypi/companion/restart`. USB surfaces
-  such as the Stream Deck get their permissions automatically.
+  such as the Stream Deck get their permissions automatically. Companion's backups are stored in
+  `COMPANION/BACKUP` on the drive SHOWPLAYPI.
 - **Ontime mode (first version):** an Ontime server runs on ShowPlayPI (official container image, included in
   the image; editor at `http://<device name>.local:4001`). The screen shows the view from `[ONTIME] VIEW`
   (default `timer`, options after `?`); `/showplaypi/ontime/view <view> [options]` shows any view with any
   of its options, e.g. `backstage` `stopCycle=true&extra-info=0-Custom+data`. Ontime uses the device's
   time zone.
+- **Audio player (first version):** background music from `AUDIO/LOOP` (subfolders are further
+  playlists) and jingles from `AUDIO`, controlled via OSC (`/showplaypi/audio/…`): play, pause, stop and
+  volume with fades, next/previous, playhead, playlist switching, repeat and shuffle; a jingle ducks the music
+  to a percentage or pauses it, and the music continues afterwards. An optional extra in every mode
+  (`[AUDIO] ENABLED=yes`); the music can start automatically
+  (`[AUDIO] AUTOSTART=yes`). Settings in the `[AUDIO]` section and on the configurator's Audio tab.
 - **Time zone from the internet connection:** `[SYSTEM] TIMEZONE=auto` (the new default) detects the time zone
   from the public IP address at every start (free GeoIP service); without internet the last detected time
   zone is kept. A time zone set in `showplaypi.ini` or the configurator is used as it is.
 - Configurator: tab "Companion / Ontime"; an empty target URL means the default page of the mode.
+- **Web interfaces in the Windows network view:** running web interfaces (Companion, Ontime) are announced
+  via UPnP and appear in Windows Explorer under *Network* (e.g. "showplaypi-e84042 – Companion"); a
+  double-click opens them. Only what really answers is announced. `[DISCOVERY] UPNP=no` or the configurator
+  (Share tab) switches it off.
 - **Video mode (first version):** videos and still images (JPG, PNG, WebP) from the folder `VIDEO` on the
   drive play full-screen in alphabetical order in a loop, with fades; subfolders are further playlists.
   Still images show for `[VIDEO] STILL_DURATION` or the time in their file name (`Sponsors [15sec].jpg`),

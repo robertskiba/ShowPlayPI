@@ -18,6 +18,7 @@ VIDEO                          videos and still images for the video mode
 AUDIO                          jingles for the audio player
 AUDIO/LOOP                     background playlist for the audio player
 PRESETS                        presets, e.g. for Bitfocus Companion
+COMPANION/BACKUP               backups of Companion (companion mode only)
 
 Configuration
 -------------

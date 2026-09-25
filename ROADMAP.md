@@ -46,6 +46,7 @@ More modes should be easy to add later.
 | **2.3** | Companion mode | 2.0 |
 | **2.4** | Audio player: background playlist and jingles (optional service) | 2.0 |
 | **3.0** | Companion module, distribution | 2.1–2.4 |
+| **3.1** | Companion Satellite: USB control surfaces on the Pi for a remote Companion (optional service) | 2.3 |
 
 ---
 
@@ -230,9 +231,9 @@ Goal: the internal structure for several modes, without new modes yet. Browser m
   - Requires the repository (or at least its releases) to be public – it is private until the 1.0 release.
 - [ ] **Windows configurator 2.0 as a wizard:** goes through all settings step by step instead of tabs, and
       only asks what matters for the chosen mode
-  - The mode is chosen first with large picture buttons, one per mode (browser, video, Companion, Ontime, …)
-  - The **audio player** is a separate step: "Enable the audio player?" – optional in every mode, its
-    settings (background playlist, jingles) only follow when enabled
+  - The mode is chosen first with **four large picture buttons**: browser, video, Companion and Ontime
+  - The **audio player** is a separate step: "Enable the audio player?" – an optional extra in every mode;
+    its settings (background playlist, jingles) only follow when enabled
   - Then the mode's settings, network, display, remote access and security (own passwords, lockable
     interfaces), and a summary page before saving ("Save" / "Save and Restart")
   - Experienced users can jump to any step directly; the INI stays the single source of all settings
@@ -377,15 +378,23 @@ about 350 MB remain free on the 1 GB Pi 5.
       to the SHOWPLAYPI drive; button presses go directly to Companion's own OSC/HTTP interfaces
 - [x] ~~Start view in the INI~~ – decided 2026-09-25: always the emulator chooser; an emulator is chosen there
       or via OSC (list for the module's dropdown)
-- [ ] **Backups on the SHOWPLAYPI drive:** Companion's own backups are redirected to `COMPANION/BACKUP/` by a
-      link in the container (no Companion configuration change); the folder is created in Companion mode
-      only. While a computer has the drive over USB, the USB configuration mode also pauses Companion
+- [x] **Backups on the SHOWPLAYPI drive** (2026-09-25): Companion's own backups are redirected to
+      `COMPANION/BACKUP/` by a link replacing Companion's backup folder (`/home/admin/companion/v<version>/backups`,
+      no Companion configuration change; existing backups are moved); the folder is created in Companion mode
+      only. Companion's log stays in the system journal (`journalctl -u showplaypi-companion`). While a computer has the drive over USB, the USB configuration mode also pauses Companion
       (its backups), since the drive is not mounted on the device meanwhile
 - [ ] Security: Companion's own admin password exposed in the INI
 
 ## 2.4 – Audio player: background playlist and jingles (optional background service)
-- [ ] Optional background service (`[AUDIO] ENABLED=yes|no`), runs e.g. together with the browser mode –
-      not together with the video mode (audio conflict)
+
+**First version in 1.0.0-beta.3** (tested on the Pi 5, 2026-09-25): `showplaypi-audio` with two mpv players
+(playlist and jingles) through PipeWire on all outputs; an optional extra in every mode
+(`[AUDIO] ENABLED=yes`), no mode of its own (decided 2026-09-25); fades in the background, duck/pause around jingles, autostart opt-in; the
+complete OSC command set of `docs/OSC.md` with `list` and `status` replies; `[AUDIO]` section and Audio tab
+in the configurator. About 160 MB RAM (two mpv instances). Open: feedbacks, durations in the file lists before
+playing, test with the video mode and on the Pi 4.
+- [x] Optional background service (`[AUDIO] ENABLED=yes|no`), runs together with any mode – also with the video
+      mode, PipeWire mixes both (decided 2026-09-25)
 - [ ] **Folders on the SHOWPLAYPI drive:**
   - `AUDIO/` – **jingles**: single files played on demand (e.g. from a Companion button)
   - `AUDIO/LOOP/` – **playlists**: the folder itself is the default playlist (played by default), each
@@ -398,8 +407,8 @@ about 350 MB remain free on the 1 GB Pi 5.
 - [ ] **Autostart opt-in:** by default the audio player only plays on command (OSC); with
       `[AUDIO] AUTOSTART=yes` playlist 1 starts after boot (background music player). Jingles never start on
       their own.
-- [ ] INI settings: output (`OUTPUT=auto|hdmi|analog|usb`), start volumes, shuffle, repeat, jingle mode;
-      also in the configurator
+- [x] INI settings: start volumes, shuffle, repeat, jingle mode; also in the configurator (Audio tab). No
+      output setting – the sound always plays on all outputs
 - [ ] Outputs: HDMI audio (Pi 4B and Pi 5), 3.5 mm jack (Pi 4B only – the Pi 5 has none), class-compliant
       USB audio adapters (analog output on the Pi 5). DAC HATs are not supported (they conflict with the
       recommended PoE HAT).
@@ -433,6 +442,25 @@ about 350 MB remain free on the 1 GB Pi 5.
 
 ---
 
+## 3.1 – Companion Satellite (optional background service)
+
+Stream Deck and other USB control surfaces plugged into the Pi work with a **Companion on another computer**
+– e.g. a Stream Deck at the lectern next to a ShowPlayPI display, while Companion runs in the control room.
+
+- [ ] Optional service `[SATELLITE] ENABLED=yes|no` (off by default), a step of its own in the configurator
+      wizard; available in **every mode except `companion`** (there the surfaces connect to the local
+      Companion directly)
+- [ ] Bitfocus Companion Satellite as its official ARM64 headless build, bundled with the image (MIT) and
+      updated like Companion
+- [ ] Target: `[SATELLITE] HOST=<IP address or name>` (Companion's Satellite port 16622 by default,
+      `PORT` optional); if empty, find a Companion on the network automatically (mDNS) where Satellite
+      supports it
+- [ ] USB permissions for the surfaces as in the Companion mode (udev rules, group `plugdev`)
+- [ ] Status in the OSC status feedback and on the setup page (connected to … / not connected)
+- [ ] Measure the load next to the browser and the video mode on the 1 GB Pi 5
+- [ ] Security: if Satellite offers its own configuration interface, it gets an optional password like every
+      other interface
+
 ## Open decisions
 
 | Topic | Question | Needed for |
@@ -450,6 +478,9 @@ about 350 MB remain free on the 1 GB Pi 5.
   image with Podman (no permanently running daemon, unlike Docker). Both are bundled with the image.
 - **OSC port 23878** (2026-09-25) instead of 9000 (the receive port of TouchOSC), so ShowPlayPI does not
   collide with common show-control software; Companion (12321) and Ontime (8888) keep their own OSC ports.
+- **UPnP announcement of the web interfaces** (2026-09-25): every running web interface on the device
+  (Companion, Ontime, later the configuration web interface) is announced via SSDP, so it can be found in
+  the Windows network view; `[DISCOVERY] UPNP=no` switches it off.
 - **Time zone from the internet connection** (2026-09-25): `[SYSTEM] TIMEZONE=auto` is the default – the
   public IP address is looked up at a free GeoIP service (ip-api.com, fallback ipapi.co) at every start.
 

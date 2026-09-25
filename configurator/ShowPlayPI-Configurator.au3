@@ -205,6 +205,52 @@ GUICtrlCreateLabel("crossfade is in preparation and fades through black for now.
     245, 425, 390, 60)
 
 ; -----------------------------------------------------------------------------
+; Audio tab
+; -----------------------------------------------------------------------------
+GUICtrlCreateTabItem("Audio")
+
+GUICtrlCreateLabel("Jingles from the folder AUDIO and background music from AUDIO/LOOP (subfolders are further " & _
+    "playlists), controlled via OSC - an optional extra that runs next to the chosen operating mode.", 45, 65, 590, 40)
+
+Global $g_idAudioEnabled = GUICtrlCreateCheckbox("Switch the audio player on", 245, 110, 390, 24)
+_SetCheckboxFromIni($g_idAudioEnabled, IniRead($g_sIniPath, "AUDIO", "ENABLED", "no"))
+
+Global $g_idAudioAutostart = GUICtrlCreateCheckbox("Start the background music automatically", 245, 140, 390, 24)
+_SetCheckboxFromIni($g_idAudioAutostart, IniRead($g_sIniPath, "AUDIO", "AUTOSTART", "no"))
+
+GUICtrlCreateLabel("Volume: all / music / jingles (%)", 45, 185, 195, 20)
+Global $g_idAudioVolume = GUICtrlCreateInput(IniRead($g_sIniPath, "AUDIO", "VOLUME", "100"), 245, 180, 70, 26, $ES_NUMBER)
+GUICtrlCreateUpdown($g_idAudioVolume, BitOR($UDS_ALIGNRIGHT, $UDS_SETBUDDYINT, $UDS_ARROWKEYS, $UDS_NOTHOUSANDS))
+GUICtrlSetLimit(-1, 100, 0)
+Global $g_idAudioLoopVolume = GUICtrlCreateInput(IniRead($g_sIniPath, "AUDIO", "LOOP_VOLUME", "80"), 325, 180, 70, 26, $ES_NUMBER)
+GUICtrlCreateUpdown($g_idAudioLoopVolume, BitOR($UDS_ALIGNRIGHT, $UDS_SETBUDDYINT, $UDS_ARROWKEYS, $UDS_NOTHOUSANDS))
+GUICtrlSetLimit(-1, 100, 0)
+Global $g_idAudioJingleVolume = GUICtrlCreateInput(IniRead($g_sIniPath, "AUDIO", "JINGLE_VOLUME", "100"), 405, 180, 70, 26, $ES_NUMBER)
+GUICtrlCreateUpdown($g_idAudioJingleVolume, BitOR($UDS_ALIGNRIGHT, $UDS_SETBUDDYINT, $UDS_ARROWKEYS, $UDS_NOTHOUSANDS))
+GUICtrlSetLimit(-1, 100, 0)
+
+GUICtrlCreateLabel("While a jingle plays", 45, 230, 180, 20)
+Global $g_idAudioJingleMode = GUICtrlCreateCombo("", 245, 225, 200, 26, $CBS_DROPDOWNLIST)
+GUICtrlSetData($g_idAudioJingleMode, "duck|pause", _ListValue(IniRead($g_sIniPath, "AUDIO", "JINGLE_MODE", "duck"), "duck|pause"))
+GUICtrlSetTip($g_idAudioJingleMode, "duck = the music gets quieter, pause = the music pauses; afterwards it continues")
+
+GUICtrlCreateLabel("Music while ducked (%)", 45, 275, 180, 20)
+Global $g_idAudioDuckLevel = GUICtrlCreateInput(IniRead($g_sIniPath, "AUDIO", "DUCK_LEVEL", "30"), 245, 270, 70, 26, $ES_NUMBER)
+GUICtrlCreateUpdown($g_idAudioDuckLevel, BitOR($UDS_ALIGNRIGHT, $UDS_SETBUDDYINT, $UDS_ARROWKEYS, $UDS_NOTHOUSANDS))
+GUICtrlSetLimit(-1, 100, 0)
+
+GUICtrlCreateLabel("Repeat the music", 45, 320, 180, 20)
+Global $g_idAudioRepeat = GUICtrlCreateCombo("", 245, 315, 200, 26, $CBS_DROPDOWNLIST)
+GUICtrlSetData($g_idAudioRepeat, "all|one|off", _ListValue(IniRead($g_sIniPath, "AUDIO", "REPEAT", "all"), "all|one|off"))
+GUICtrlSetTip($g_idAudioRepeat, "all = endless loop, one = the current track, off = once")
+
+Global $g_idAudioShuffle = GUICtrlCreateCheckbox("Random order", 245, 355, 390, 24)
+_SetCheckboxFromIni($g_idAudioShuffle, IniRead($g_sIniPath, "AUDIO", "SHUFFLE", "no"))
+
+GUICtrlCreateLabel("The sound plays on all outputs at once: HDMI, the headphone jack of the Pi 4 and a USB sound card.", _
+    245, 395, 390, 40)
+
+; -----------------------------------------------------------------------------
 ; Companion / Ontime tab
 ; -----------------------------------------------------------------------------
 GUICtrlCreateTabItem("Companion / Ontime")
@@ -273,6 +319,11 @@ GUICtrlCreateLabel( _
     "Mac:  smb://<device name>.local/SHOWPLAYPI" & @CRLF & @CRLF & _
     "User name admin, password admin.", _
     245, 120, 390, 130)
+
+Global $g_idUpnpEnabled = GUICtrlCreateCheckbox("Announce web interfaces on the network (UPnP)", 245, 275, 390, 24)
+_SetCheckboxFromIni($g_idUpnpEnabled, IniRead($g_sIniPath, "DISCOVERY", "UPNP", "yes"))
+GUICtrlCreateLabel("The running web interfaces (Companion, Ontime) appear in Windows under ""Network"" " & _
+    "and open with a double-click.", 245, 302, 390, 40)
 
 ; -----------------------------------------------------------------------------
 ; OSC tab
@@ -409,6 +460,16 @@ Func _CreateDefaultIni()
 
     $bSuccess = IniWrite($g_sIniPath, "ONTIME", "VIEW", "timer") And $bSuccess
 
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "ENABLED", "no") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "AUTOSTART", "no") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "VOLUME", "100") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "LOOP_VOLUME", "80") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "JINGLE_VOLUME", "100") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "JINGLE_MODE", "duck") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "DUCK_LEVEL", "30") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "REPEAT", "all") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "SHUFFLE", "no") And $bSuccess
+
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "MODE", "auto") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "FALLBACK", "1920x1080@60") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "RESOLUTION", "1920x1080") And $bSuccess
@@ -417,6 +478,7 @@ Func _CreateDefaultIni()
     $bSuccess = IniWrite($g_sIniPath, "VNC", "ENABLED", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "VNC", "PORT", "5900") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK_SHARE", "ENABLED", "yes") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "DISCOVERY", "UPNP", "yes") And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "OSC", "ENABLED", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "OSC", "PORT", "23878") And $bSuccess
@@ -473,6 +535,10 @@ Func _SaveConfiguration($bRestart = False)
     Local $iVideoStillDuration = Number(GUICtrlRead($g_idVideoStillDuration))
     Local $iVideoVolume = Number(GUICtrlRead($g_idVideoVolume))
     Local $sOntimeView = StringStripWS(GUICtrlRead($g_idOntimeView), 3)
+    Local $iAudioVolume = Number(GUICtrlRead($g_idAudioVolume))
+    Local $iAudioLoopVolume = Number(GUICtrlRead($g_idAudioLoopVolume))
+    Local $iAudioJingleVolume = Number(GUICtrlRead($g_idAudioJingleVolume))
+    Local $iAudioDuckLevel = Number(GUICtrlRead($g_idAudioDuckLevel))
 
     If Not StringRegExp($sHostname, "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$") Then
         _ValidationError("Enter a valid hostname.", $g_idHostname)
@@ -586,6 +652,11 @@ Func _SaveConfiguration($bRestart = False)
         Return
     EndIf
 
+    If $iAudioVolume > 100 Or $iAudioLoopVolume > 100 Or $iAudioJingleVolume > 100 Or $iAudioDuckLevel > 100 Then
+        _ValidationError("Audio volumes must be between 0 and 100 percent.", $g_idAudioVolume)
+        Return
+    EndIf
+
     Local $bSuccess = True
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "MODE", GUICtrlRead($g_idMode)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "SYSTEM", "HOSTNAME", $sHostname) And $bSuccess
@@ -620,6 +691,16 @@ Func _SaveConfiguration($bRestart = False)
 
     $bSuccess = IniWrite($g_sIniPath, "ONTIME", "VIEW", $sOntimeView) And $bSuccess
 
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "ENABLED", _CheckboxValue($g_idAudioEnabled)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "AUTOSTART", _CheckboxValue($g_idAudioAutostart)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "VOLUME", String($iAudioVolume)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "LOOP_VOLUME", String($iAudioLoopVolume)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "JINGLE_VOLUME", String($iAudioJingleVolume)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "JINGLE_MODE", GUICtrlRead($g_idAudioJingleMode)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "DUCK_LEVEL", String($iAudioDuckLevel)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "REPEAT", GUICtrlRead($g_idAudioRepeat)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "AUDIO", "SHUFFLE", _CheckboxValue($g_idAudioShuffle)) And $bSuccess
+
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "MODE", $sDisplayMode) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "FALLBACK", $sFallback) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISPLAY", "RESOLUTION", $sResolution) And $bSuccess
@@ -627,6 +708,7 @@ Func _SaveConfiguration($bRestart = False)
 
     $bSuccess = IniWrite($g_sIniPath, "VNC", "ENABLED", _CheckboxValue($g_idVncEnabled)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK_SHARE", "ENABLED", _CheckboxValue($g_idShareEnabled)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "DISCOVERY", "UPNP", _CheckboxValue($g_idUpnpEnabled)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "VNC", "PORT", String($iVncPort)) And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "OSC", "ENABLED", _CheckboxValue($g_idOscEnabled)) And $bSuccess

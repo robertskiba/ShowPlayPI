@@ -159,7 +159,7 @@ enter_config_mode() {
 
     systemctl stop showplaypi-kiosk.service showplaypi-vnc.service \
         showplaypi-idle.service showplaypi-web-watchdog.service showplaypi-video.service \
-        showplaypi-companion.service showplaypi-ontime.service 2>/dev/null
+        showplaypi-companion.service showplaypi-ontime.service showplaypi-audio.service 2>/dev/null
 
     for file in /sys/devices/system/cpu/cpufreq/policy*/scaling_governor; do
         echo powersave > "$file" 2>/dev/null || true

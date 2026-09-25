@@ -70,6 +70,10 @@ if changed '/etc/systemd/journald\.conf\.d/'; then
     systemctl restart systemd-journald
 fi
 
+if changed '/etc/samba/'; then
+    smbcontrol smbd reload-config 2>/dev/null || true
+fi
+
 if changed '/etc/udev/rules\.d/'; then
     udevadm control --reload
     udevadm trigger --subsystem-match=hidraw --subsystem-match=usb
@@ -89,10 +93,12 @@ changed 'showplaypi-(browser|display|current-url|kiosk)|\.xinitrc|/home/admin/ki
 changed 'showplaypi-vnc'                  && restart+=(showplaypi-vnc.service)
 changed 'showplaypi-idle'                 && restart+=(showplaypi-idle.service)
 changed 'showplaypi-mode'                 && restart+=(showplaypi-mode.service)
-changed 'showplaypi-video'                && restart+=(showplaypi-video.service)
+changed 'showplaypi-video|showplaypi_mpv' && restart+=(showplaypi-video.service)
+changed 'showplaypi-audio|showplaypi_mpv' && restart+=(showplaypi-audio.service)
 changed 'showplaypi-companion'            && restart+=(showplaypi-companion.service)
 changed 'showplaypi-(ontime|container-image)' && restart+=(showplaypi-ontime.service)
 changed 'showplaypi-timezone'             && restart+=(showplaypi-timezone.service)
+changed 'showplaypi-upnp'                 && restart+=(showplaypi-upnp.service)
 changed 'showplaypi-usb-config-mode'      && restart+=(showplaypi-usb-config-mode.service)
 changed 'showplaypi-usb-drive'            && restart+=(showplaypi-usb-drive.service)
 changed 'showplaypi-restart.path'        && restart+=(showplaypi-restart.path)

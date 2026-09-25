@@ -6,7 +6,7 @@ ShowPlayPI can be controlled from any OSC-capable device or program: Bitfocus Co
 This file is the **authoritative reference**; the Companion module will be built against it.
 Whoever changes or adds a command updates this file in the same commit.
 
-Status: browser mode; video, Companion and Ontime mode as a first version (see below). Implemented in
+Status: browser mode; video, Companion, Ontime and audio as a first version (see below). Implemented in
 `rootfs/usr/local/bin/showplaypi-osc` and `showplaypi-video`.
 
 ## Connection
@@ -16,7 +16,7 @@ Status: browser mode; video, Companion and Ontime mode as a first version (see b
 | Protocol | OSC 1.0 over **UDP** |
 | Target | IP address or device name of the Pi, e.g. `showplaypi-e84042.local` (shown on the setup page) |
 | Port | **23878** (fixed; chosen so that it does not collide with the default ports of common show-control software) |
-| Replies | none – except `/showplaypi/video/list`, `/showplaypi/video/status` and `/showplaypi/companion/emulators`, which answer to the sender's address and port |
+| Replies | none – except `/showplaypi/video/list`, `/showplaypi/video/status`, `/showplaypi/audio/list`, `/showplaypi/audio/status` and `/showplaypi/companion/emulators`, which answer to the sender's address and port |
 | Bundles | currently **not** supported, single messages only |
 | Argument types | `s` (string), `i` (integer), `f` (float), `T`/`F` (boolean) |
 | Times | always in **milliseconds** (fades, durations, positions, timeouts); volumes always in **percent** |
@@ -41,7 +41,7 @@ Invalid or unknown commands are ignored and logged to the journal:
 | `/showplaypi/video/…` | video mode (`[SYSTEM] MODE=video`) |
 | `/showplaypi/companion/…` | Companion mode (`[SYSTEM] MODE=companion`) |
 | `/showplaypi/ontime/…` | Ontime mode (`[SYSTEM] MODE=ontime`) |
-| `/showplaypi/audio/…` | audio player, a background service next to any mode (release 2.4) |
+| `/showplaypi/audio/…` | audio player, an optional extra in every mode (`[AUDIO] ENABLED=yes`) |
 
 **Commands of an inactive mode or service are ignored** (and logged): the browser commands only act where the
 browser runs (browser, Ontime and Companion mode), the video, Companion and Ontime commands only in their
@@ -336,8 +336,10 @@ Reply to `/showplaypi/companion/emulators`, e.g.:
 {"emulators": [{"id": "JGogBBWueb55Y9MWfTphX", "name": "Stage left", "columns": 8, "rows": 4}]}
 ```
 
-**Planned:** Companion's own backups redirected to `COMPANION/BACKUP/` on the SHOWPLAYPI drive; the emulator
-list pushed to subscribers on every change; **feedbacks** `…/companion/state` (`starting` \| `running` \|
+**Backups:** Companion's own backups (scheduled and manual) are stored in `COMPANION/BACKUP/` on the SHOWPLAYPI
+drive, so they can be copied over USB, the network share or a card reader.
+
+**Planned:** the emulator list pushed to subscribers on every change; **feedbacks** `…/companion/state` (`starting` \| `running` \|
 `stopped` \| `error`) and the Companion version.
 
 ### Ontime mode (`[SYSTEM] MODE=ontime`)
@@ -363,9 +365,14 @@ Like every page set via OSC, the view lasts until the next restart; the start vi
 `showplaypi.ini` (`[ONTIME] VIEW=backstage?stopCycle=true`, the options after `?`). This lets the Companion
 module offer every setting of Ontime's views.
 
-### Audio player (release 2.4, draft)
+### Audio player (`[AUDIO] ENABLED=yes`)
 
-Optional background service (`[AUDIO] ENABLED=yes`) with two sources on the SHOWPLAYPI drive:
+**First version implemented** (`showplaypi-audio`, two mpv players): all commands in the tables below; `list`
+and `status` answer to the sender. Not yet: feedbacks for subscribers, and track durations in the file lists
+before a file has played once (`null` until then).
+
+The audio player is an **optional extra in every mode** (`[AUDIO] ENABLED=yes`); it runs next to the chosen
+mode. Two sources on the SHOWPLAYPI drive:
 
 - `AUDIO/` – **jingles**: single files, played on demand
 - `AUDIO/LOOP/` – **playlists**: the folder itself is always playlist 1 and the default; its subfolders
@@ -378,8 +385,9 @@ By default the audio player **only plays on command** (`…/loop/play`, `…/jin
 background music player: with `[AUDIO] AUTOSTART=yes` playlist 1 starts automatically after the device has
 started. Jingles never start on their own.
 Start values (volumes, jingle behaviour) come from `showplaypi.ini`;
-everything set via OSC lasts until the next reboot. The audio output (HDMI, headphone jack, USB) is set only
-in the configuration.
+everything set via OSC lasts until the next reboot. The sound plays on all outputs at once (HDMI, the
+headphone jack of the Pi 4, a USB sound card on outputs 1-2). File names are matched exactly (case-insensitive,
+with or without extension), e.g. `"01_Gong"` for `01_Gong.wav`.
 
 **Playlist**
 

@@ -33,6 +33,10 @@ DEFAULT_URL = "file:///home/admin/kiosk/setup.html"
 # Video mode: commands go to showplaypi-video, which writes its state to a JSON file
 VIDEO_SOCKET = RUNTIME_DIRECTORY / "video.sock"
 VIDEO_STATUS_FILE = RUNTIME_DIRECTORY / "video-status.json"
+# Audio player ([AUDIO] ENABLED=yes, any mode): commands go to showplaypi-audio
+AUDIO_SOCKET = RUNTIME_DIRECTORY / "audio.sock"
+AUDIO_STATUS_FILE = RUNTIME_DIRECTORY / "audio-status.json"
+AUDIO_PLAYER_FLAG = RUNTIME_DIRECTORY / "audio-player"
 BROWSER_MODES = ("browser", "ontime", "companion")
 # Companion mode: Companion runs on the device (showplaypi-companion.service)
 COMPANION_URL = "http://127.0.0.1:8000"
@@ -413,6 +417,34 @@ def reply(osc_socket, destination, address, text):
     osc_socket.sendto(message, destination)
 
 
+def send_to_audio(command, arguments):
+    message = json.dumps({"command": command, "args": arguments}).encode("utf-8")
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as audio_socket:
+        try:
+            audio_socket.sendto(message, str(AUDIO_SOCKET))
+        except OSError as error:
+            raise RuntimeError(f"Audio player is not running: {error}")
+
+
+def reply_audio_state(osc_socket, destination, command):
+    # The player writes its state right after the command; give it a moment
+    time.sleep(0.2)
+
+    try:
+        status = json.loads(AUDIO_STATUS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RuntimeError(f"No audio player state available: {error}")
+
+    if command == "list":
+        reply(osc_socket, destination, "/showplaypi/audio/files",
+              json.dumps({"jingles": status.get("jingles", []), "playlists": status.get("playlists", [])}))
+    else:
+        status.pop("jingles", None)
+        status.pop("playlists", None)
+        reply(osc_socket, destination, "/showplaypi/audio/status", json.dumps(status))
+
+
 def reply_video_state(osc_socket, destination, command):
     # The player writes its state right after the command; give it a moment
     time.sleep(0.2)
@@ -611,7 +643,17 @@ def handle_message(address, arguments, source, mode, osc_socket):
         return
 
     if address.startswith("/showplaypi/audio/"):
-        log.info("Ignored %s: not implemented yet", address)
+        # The audio player is an optional extra in any mode ([AUDIO] ENABLED=yes)
+        if not AUDIO_PLAYER_FLAG.exists():
+            log.info("Ignored %s: the audio player is not enabled", address)
+            return
+
+        command = address[len("/showplaypi/audio/"):]
+        send_to_audio(command, arguments)
+
+        if command in ("list", "status"):
+            reply_audio_state(osc_socket, source, command)
+
         return
 
     if address == "/showplaypi/blackout" and mode == "video":

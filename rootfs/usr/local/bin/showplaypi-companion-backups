@@ -1,0 +1,44 @@
+#!/bin/bash
+# Companion mode: Companion's own backups go to COMPANION/BACKUP on the SHOWPLAYPI drive, so they can be copied
+# over USB, the network share or a card reader. The backup folder in Companion's configuration (one per
+# version, e.g. /home/admin/companion/v5.0/backups) becomes a link to the drive – Companion's settings stay
+# unchanged. Existing backups are moved over. Runs before every start of Companion (as the user admin).
+
+MEDIA="/media/showplaypi"
+TARGET="$MEDIA/COMPANION/BACKUP"
+CONFIG="/home/admin/companion"
+PACKAGE="/opt/companion/resources/package.json"
+
+# Without the drive (e.g. it is with a computer over USB) the backups stay where they are
+if ! mountpoint -q "$MEDIA"; then
+    echo "Drive SHOWPLAYPI not mounted – Companion backups stay on the Linux partition for now."
+    exit 0
+fi
+
+mkdir -p "$TARGET" || exit 0
+
+# The configuration folder of the installed version (v<major>.<minor>) exists before Companion's first start
+version="$(sed -n 's/.*"version": *"\([0-9]*\)\.\([0-9]*\)\..*/\1.\2/p' "$PACKAGE" 2>/dev/null | head -n 1)"
+[ -n "$version" ] && mkdir -p "$CONFIG/v$version"
+
+for folder in "$CONFIG"/v*/; do
+    [ -d "$folder" ] || continue
+    backups="${folder}backups"
+
+    if [ -L "$backups" ]; then
+        [ "$(readlink "$backups")" = "$TARGET" ] || ln -sfn "$TARGET" "$backups"
+        continue
+    fi
+
+    if [ -d "$backups" ]; then
+        # -n: never overwrite a backup of the same name on the drive
+        find "$backups" -maxdepth 1 -type f -exec mv -n {} "$TARGET/" \;
+        if ! rmdir "$backups" 2>/dev/null; then
+            echo "$backups could not be emptied – left as it is."
+            continue
+        fi
+        echo "Existing Companion backups moved to COMPANION/BACKUP."
+    fi
+
+    ln -s "$TARGET" "$backups"
+done

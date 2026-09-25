@@ -19,9 +19,12 @@ import logging
 import os
 import re
 import socket
-import subprocess
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/showplaypi")
+from showplaypi_mpv import Mpv  # noqa: E402
 
 CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
 VIDEO_DIR = Path("/media/showplaypi/VIDEO")
@@ -190,87 +193,17 @@ def wait_for_x(seconds=60):
     raise RuntimeError("the X session did not start")
 
 
-class Mpv:
-    def __init__(self, volume):
-        MPV_SOCKET.unlink(missing_ok=True)
-        self.process = subprocess.Popen([
-            "mpv", "--idle=yes", "--force-window=yes", "--fullscreen", "--keep-open=yes",
-            "--image-display-duration=inf", "--no-osc", "--osd-level=0", "--no-input-default-bindings",
-            "--input-vo-keyboard=no", "--no-terminal", "--cursor-autohide=always",
-            # profile=fast: simpler scaling – without it the Pi 5 dropped about 40 % of the frames of a
-            # 1080p60 video (measured 2026-09-25), with it none
-            "--no-config", "--profile=fast",
-            "--ao=pipewire,alsa", "--vo=gpu", "--hwdec=auto-safe", "--stop-screensaver=yes",
-            f"--volume={volume}", f"--brightness={BLACK}", f"--input-ipc-server={MPV_SOCKET}",
-        ])
-        self.connection = None
-        for _ in range(100):
-            try:
-                self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                self.connection.connect(str(MPV_SOCKET))
-                break
-            except OSError:
-                self.connection.close()
-                self.connection = None
-                if self.process.poll() is not None:
-                    raise RuntimeError("mpv could not be started")
-                time.sleep(0.1)
-        if self.connection is None:
-            raise RuntimeError("no connection to mpv")
-        self.connection.settimeout(2)
-        self.buffer = b""
-        self.events = []
-        self.request = 0
-
-    def _read_line(self):
-        while b"\n" not in self.buffer:
-            chunk = self.connection.recv(65536)
-            if not chunk:
-                raise RuntimeError("mpv has stopped")
-            self.buffer += chunk
-        line, self.buffer = self.buffer.split(b"\n", 1)
-        return json.loads(line)
-
-    def command(self, *arguments):
-        self.request += 1
-        request = self.request
-        self.connection.sendall(json.dumps({"command": list(arguments), "request_id": request}).encode() + b"\n")
-        while True:
-            message = self._read_line()
-            if "event" in message:
-                self.events.append(message)
-            elif message.get("request_id") == request:
-                if message.get("error") not in (None, "success"):
-                    return None
-                return message.get("data")
-
-    def get(self, name):
-        return self.command("get_property", name)
-
-    def set(self, name, value):
-        self.command("set_property", name, value)
-
-    def take_events(self):
-        """Events received so far (non-blocking)."""
-        self.connection.setblocking(False)
-        try:
-            while True:
-                try:
-                    chunk = self.connection.recv(65536)
-                except BlockingIOError:
-                    break
-                if not chunk:
-                    raise RuntimeError("mpv has stopped")
-                self.buffer += chunk
-        finally:
-            self.connection.settimeout(2)
-        while b"\n" in self.buffer:
-            line, self.buffer = self.buffer.split(b"\n", 1)
-            message = json.loads(line)
-            if "event" in message:
-                self.events.append(message)
-        events, self.events = self.events, []
-        return events
+def start_mpv(volume):
+    return Mpv(MPV_SOCKET, [
+        "--idle=yes", "--force-window=yes", "--fullscreen", "--keep-open=yes",
+        "--image-display-duration=inf", "--no-osc", "--osd-level=0", "--no-input-default-bindings",
+        "--input-vo-keyboard=no", "--no-terminal", "--cursor-autohide=always",
+        # profile=fast: simpler scaling – without it the Pi 5 dropped about 40 % of the frames of a
+        # 1080p60 video (measured 2026-09-25), with it none
+        "--no-config", "--profile=fast",
+        "--ao=pipewire,alsa", "--vo=gpu", "--hwdec=auto-safe", "--stop-screensaver=yes",
+        f"--volume={volume}", f"--brightness={BLACK}",
+    ])
 
 
 # --- Player ---------------------------------------------------------------------------------------------------
@@ -278,7 +211,7 @@ class Mpv:
 class Player:
     def __init__(self):
         self.settings = Settings()
-        self.mpv = Mpv(self.settings.volume)
+        self.mpv = start_mpv(self.settings.volume)
         self.playlists = scan_playlists(self.settings.still_ms)
         self.signature = playlists_signature(self.playlists)
         self.playlist = 0

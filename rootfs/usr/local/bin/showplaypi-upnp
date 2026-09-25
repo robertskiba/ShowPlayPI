@@ -1,0 +1,299 @@
+#!/usr/bin/python3
+"""ShowPlayPI: announces the web interfaces on the device via UPnP (SSDP).
+
+On Windows they appear under "Network" (Other devices) as e.g. "showplaypi-e84042 – Companion"; a double-click
+opens the web interface. Only web interfaces that really answer are announced (checked every 10 seconds, in
+every mode), and the announcement is withdrawn when one stops.
+
+- Known web interfaces: Companion (port 8000), Ontime (port 4001).
+- Switch off: [DISCOVERY] UPNP=no in showplaypi.ini.
+- SSDP on UDP 1900 (multicast 239.255.255.250), device descriptions via HTTP on TCP 23879.
+"""
+
+import http.server
+import logging
+import signal
+import socket
+import struct
+import sys
+import threading
+import time
+import uuid
+from pathlib import Path
+
+CONFIG_FILE = Path("/etc/showplaypi/showplaypi.ini")
+RELEASE_FILE = Path("/etc/showplaypi-release")
+MACHINE_ID_FILE = Path("/etc/machine-id")
+
+SSDP_GROUP = "239.255.255.250"
+SSDP_PORT = 1900
+DESCRIPTION_PORT = 23879
+MAX_AGE = 1800
+# Check the web interfaces this often; announce again well within MAX_AGE
+CHECK_SECONDS = 10
+ALIVE_SECONDS = 300
+DEVICE_TYPE = "urn:schemas-upnp-org:device:Basic:1"
+
+# Web interfaces on the device: (name, title, port, description) – announced while they answer
+WEB_SERVICES = [
+    ("companion", "Companion", 8000, "Bitfocus Companion running on ShowPlayPI"),
+    ("ontime", "Ontime", 4001, "Ontime running on ShowPlayPI"),
+]
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("showplaypi-upnp")
+
+
+def ini_value(section_name, key_name, default):
+    section = ""
+    try:
+        lines = CONFIG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return default
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+        elif section == section_name and "=" in line:
+            key, value = line.split("=", 1)
+            if key.strip() == key_name:
+                return value.strip()
+    return default
+
+
+def release_version():
+    try:
+        for line in RELEASE_FILE.read_text().splitlines():
+            if line.startswith("SHOWPLAYPI_VERSION="):
+                return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return "unknown"
+
+
+def local_address(destination):
+    """The own IPv4 address the device uses towards destination."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.connect((destination, 9))
+            return probe.getsockname()[0]
+        except OSError:
+            return None
+
+
+def reachable(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+class Device:
+    def __init__(self, name, title, port, description, hostname, machine_id, version):
+        self.name = name
+        self.port = port
+        self.friendly_name = f"{hostname} – {title}"
+        self.description = description
+        self.version = version
+        # Stable per device and web interface
+        self.udn = f"uuid:{uuid.uuid5(uuid.NAMESPACE_URL, f'showplaypi:{machine_id}:{name}')}"
+        self.alive = False
+
+    def location(self, address):
+        return f"http://{address}:{DESCRIPTION_PORT}/{self.name}.xml"
+
+    def targets(self):
+        """(NT/ST, USN) pairs announced for this device."""
+        return [
+            ("upnp:rootdevice", f"{self.udn}::upnp:rootdevice"),
+            (self.udn, self.udn),
+            (DEVICE_TYPE, f"{self.udn}::{DEVICE_TYPE}"),
+        ]
+
+    def xml(self, address):
+        def escape(text):
+            return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+        return f"""<?xml version="1.0" encoding="utf-8"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <specVersion><major>1</major><minor>0</minor></specVersion>
+  <device>
+    <deviceType>{DEVICE_TYPE}</deviceType>
+    <friendlyName>{escape(self.friendly_name)}</friendlyName>
+    <manufacturer>ShowPlayPI</manufacturer>
+    <manufacturerURL>https://konftools.com</manufacturerURL>
+    <modelDescription>{escape(self.description)}</modelDescription>
+    <modelName>ShowPlayPI</modelName>
+    <modelNumber>{escape(self.version)}</modelNumber>
+    <modelURL>https://konftools.com</modelURL>
+    <UDN>{self.udn}</UDN>
+    <presentationURL>http://{address}:{self.port}/</presentationURL>
+  </device>
+</root>
+""".encode("utf-8")
+
+
+class Announcer:
+    def __init__(self, devices):
+        self.devices = devices
+        self.server_header = f"Linux UPnP/1.0 ShowPlayPI/{devices[0].version}"
+        self.sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sender.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        self.lock = threading.Lock()
+
+    def notify(self, device, alive):
+        address = local_address(SSDP_GROUP)
+        if address is None:
+            return
+        for target, usn in device.targets():
+            lines = [
+                "NOTIFY * HTTP/1.1",
+                f"HOST: {SSDP_GROUP}:{SSDP_PORT}",
+                f"NT: {target}",
+                f"NTS: {'ssdp:alive' if alive else 'ssdp:byebye'}",
+                f"USN: {usn}",
+            ]
+            if alive:
+                lines += [
+                    f"CACHE-CONTROL: max-age={MAX_AGE}",
+                    f"LOCATION: {device.location(address)}",
+                    f"SERVER: {self.server_header}",
+                ]
+            try:
+                self.sender.sendto(("\r\n".join(lines) + "\r\n\r\n").encode(), (SSDP_GROUP, SSDP_PORT))
+            except OSError as error:
+                log.warning("SSDP notification failed: %s", error)
+
+    def answer(self, request, source, listener):
+        text = request.decode("utf-8", errors="replace")
+        if not text.startswith("M-SEARCH"):
+            return
+        headers = {}
+        for line in text.split("\r\n")[1:]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                headers[key.strip().upper()] = value.strip()
+        search_target = headers.get("ST", "")
+        address = local_address(source[0])
+        if address is None:
+            return
+
+        for device in self.devices:
+            if not device.alive:
+                continue
+            for target, usn in device.targets():
+                if search_target not in ("ssdp:all", target):
+                    continue
+                response = "\r\n".join([
+                    "HTTP/1.1 200 OK",
+                    f"CACHE-CONTROL: max-age={MAX_AGE}",
+                    "EXT:",
+                    f"LOCATION: {device.location(address)}",
+                    f"SERVER: {self.server_header}",
+                    f"ST: {target}",
+                    f"USN: {usn}",
+                ]) + "\r\n\r\n"
+                try:
+                    listener.sendto(response.encode(), source)
+                except OSError:
+                    pass
+
+    def check(self, force_alive=False):
+        with self.lock:
+            for device in self.devices:
+                up = reachable(device.port)
+                if up and (not device.alive or force_alive):
+                    if not device.alive:
+                        log.info("Announcing %s (port %s) via UPnP.", device.friendly_name, device.port)
+                    device.alive = True
+                    self.notify(device, True)
+                elif not up and device.alive:
+                    log.info("%s stopped answering – UPnP announcement withdrawn.", device.friendly_name)
+                    device.alive = False
+                    self.notify(device, False)
+
+    def goodbye(self):
+        with self.lock:
+            for device in self.devices:
+                if device.alive:
+                    self.notify(device, False)
+                    device.alive = False
+
+
+def description_server(devices):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            name = self.path.strip("/").removesuffix(".xml")
+            device = next((device for device in devices if device.name == name), None)
+            if device is None:
+                self.send_error(404)
+                return
+            body = device.xml(self.connection.getsockname()[0])
+            self.send_response(200)
+            self.send_header("Content-Type", 'text/xml; charset="utf-8"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *arguments):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", DESCRIPTION_PORT), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+
+def main():
+    if ini_value("DISCOVERY", "UPNP", "yes").lower() in ("no", "false", "0", "off"):
+        log.info("UPnP announcements are switched off in showplaypi.ini.")
+        return
+
+    hostname = socket.gethostname()
+    machine_id = MACHINE_ID_FILE.read_text().strip() if MACHINE_ID_FILE.exists() else hostname
+    version = release_version()
+    devices = [Device(*service, hostname, machine_id, version) for service in WEB_SERVICES]
+
+    description_server(devices)
+    announcer = Announcer(devices)
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if hasattr(socket, "SO_REUSEPORT"):
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    listener.bind(("", SSDP_PORT))
+    membership = struct.pack("4s4s", socket.inet_aton(SSDP_GROUP), socket.inet_aton("0.0.0.0"))
+    listener.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+    listener.settimeout(1)
+
+    def stop(*_):
+        announcer.goodbye()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    next_check = 0.0
+    next_alive = time.monotonic() + ALIVE_SECONDS
+    while True:
+        now = time.monotonic()
+        if now >= next_check:
+            refresh = now >= next_alive
+            announcer.check(force_alive=refresh)
+            if refresh:
+                next_alive = now + ALIVE_SECONDS
+            next_check = now + CHECK_SECONDS
+        try:
+            request, source = listener.recvfrom(4096)
+        except socket.timeout:
+            continue
+        except OSError:
+            time.sleep(1)
+            continue
+        with announcer.lock:
+            announcer.answer(request, source, listener)
+
+
+if __name__ == "__main__":
+    main()

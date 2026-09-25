@@ -15,6 +15,8 @@ SupplementaryGroups=plugdev dialout input
 Environment="COMPANION_SYNC_UDEV_RULES_COMMAND=sudo -n /usr/local/sbin/showplaypi-companion-udev"
 # Rules of an earlier start, before Companion itself runs
 ExecStartPre=+/usr/local/sbin/showplaypi-companion-udev
+# Companion's backups go to COMPANION/BACKUP on the SHOWPLAYPI drive (a link, Companion's settings unchanged)
+ExecStartPre=/usr/local/bin/showplaypi-companion-backups
 # Configuration on the Linux partition; the web interface on port 8000 (Companion's default)
 ExecStart=/opt/companion/companion_headless.sh --config-dir /home/admin/companion --admin-address 0.0.0.0 --admin-port 8000 --no-notifications
 Restart=always
