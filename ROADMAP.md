@@ -90,8 +90,10 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
 - [ ] **Publish:** delete and re-create the GitHub repository before making it public (so no commits of the
       old history remain reachable), push the clean history, release on GitHub with image, checksum and
       configurator EXE
-- [ ] Publish the Imager list at a permanent URL, test it with `rpi-imager --repo <url>`, then apply for the
-      official Imager list (form linked at the end of the Imager's `doc/schema-notes.md`)
+- [ ] Imager list at its permanent address `https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json`
+      (`rpi-imager.json` in the main folder, updated by every release build – done): test it with
+      `rpi-imager --repo <address>` once the repository is public, then apply for the official Imager list
+      (form linked at the end of the Imager's `doc/schema-notes.md`)
 
 **Definition of done:** a user flashes the image with Raspberry Pi Imager, configures it with the
 configurator via USB-C (or a text editor on the SD card), chooses a mode, and the device runs on Pi 4B and

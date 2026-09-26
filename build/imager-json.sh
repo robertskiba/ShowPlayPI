@@ -57,3 +57,11 @@ cat > "$OUT" <<EOF
 }
 EOF
 echo "Written: $OUT"
+
+# A release image (ShowPlayPI-<version>.img.xz, built from its tag) also updates rpi-imager.json in the main
+# folder of the repository: the list the Imager reads at a permanent address, see docs/DEVELOPMENT.md.
+# Commit it together with the release.
+if [[ $FILE == "ShowPlayPI-$SHOWPLAYPI_VERSION.img.xz" ]]; then
+    cp "$OUT" "$REPO/rpi-imager.json"
+    echo "Updated: rpi-imager.json (permanent Imager list – commit it with the release)"
+fi

@@ -48,8 +48,16 @@ For an existing image: `bash build/imager-json.sh build/out/ShowPlayPI-<version>
 
 The URLs point to the GitHub release asset `v<version>` and to the icon on the branch `main`; both only
 work once the repository is public. Other locations: set `IMAGER_IMAGE_URL` and `IMAGER_ICON_URL`.
-The list itself needs a permanent public address (it is updated with every release). Test it with
-`rpi-imager --repo <url of the list>`.
+**Permanent address of the list:** `rpi-imager.json` in the main folder of the repository, on the branch
+`main`:
+
+    https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json
+
+The address never changes; only the content is updated with every release. A release build (image named
+`ShowPlayPI-<version>.img.xz`, built from its tag) copies its list there automatically – commit it together
+with the release. (GitHub's `releases/latest` address is not used: it skips pre-releases, i.e. all betas.)
+The address works once the repository is public. Test it with
+`rpi-imager --repo https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json`.
 
 `build/compare.sh old.img new.img` compares two images (packages, units, overlay, boot partition, user).
 

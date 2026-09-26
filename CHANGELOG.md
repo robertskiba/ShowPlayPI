@@ -6,6 +6,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Companion and Ontime always use the device's time zone: they start only after the time zone from
+  `showplaypi.ini` is set, and both are restarted once when `TIMEZONE=auto` detects a different time zone
+  after the start (before, Companion kept the previous time zone until the next restart).
+
 ## [1.0.0-beta.3] – 2026-09-26
 
 ShowPlayPI becomes a playout device with four modes: besides the web browser it now plays videos and still

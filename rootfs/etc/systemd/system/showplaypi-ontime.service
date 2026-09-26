@@ -1,6 +1,8 @@
 [Unit]
 Description=ShowPlayPI Ontime (Ontime server in the background, container)
 After=showplaypi-mode.service showplaypi-media.service network.target
+# The time zone from the configuration is set first (showplaypi-system-config)
+After=showplaypi-system-config.service
 # Only in Ontime mode ([SYSTEM] MODE=ontime, see showplaypi-mode); the browser shows the timer
 ConditionPathExists=/run/showplaypi/mode-ontime
 
@@ -13,7 +15,7 @@ ExecStartPre=-/usr/bin/podman rm --force showplaypi-ontime
 # Host network: web interface on port 4001, Ontime's own OSC ports work as configured in Ontime.
 # Time zone: Node in the image ignores a mounted /etc/localtime and needs TZ ([SYSTEM] TIMEZONE).
 ExecStart=/bin/sh -c 'exec /usr/bin/podman run --rm --name showplaypi-ontime --network host --pull=never \
-    --volume /home/admin/ontime:/data --env TZ="$(cat /etc/timezone 2>/dev/null || echo UTC)" \
+    --volume /home/admin/ontime:/data --env TZ="$(readlink /etc/localtime | sed "s#.*zoneinfo/##")" \
     docker.io/getontime/ontime:v4'
 ExecStop=/usr/bin/podman stop --time 10 showplaypi-ontime
 Restart=always

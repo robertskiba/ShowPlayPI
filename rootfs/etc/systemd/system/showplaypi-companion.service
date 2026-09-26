@@ -1,6 +1,8 @@
 [Unit]
 Description=ShowPlayPI Companion (Bitfocus Companion in the background)
 After=showplaypi-mode.service showplaypi-media.service network.target
+# The time zone from the configuration is set first (showplaypi-system-config)
+After=showplaypi-system-config.service
 # Only in Companion mode ([SYSTEM] MODE=companion, see showplaypi-mode); the browser shows the emulators
 ConditionPathExists=/run/showplaypi/mode-companion
 ConditionPathExists=/opt/companion/companion_headless.sh

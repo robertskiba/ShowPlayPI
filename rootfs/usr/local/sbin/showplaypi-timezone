@@ -70,8 +70,9 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
         if [ "$(timedatectl show --property=Timezone --value)" != "$timezone" ]; then
             timedatectl set-timezone "$timezone"
             log_message "Time zone detected from the internet connection: $timezone"
-            # The Ontime container reads the time zone when it starts
-            systemctl try-restart showplaypi-ontime.service
+            # Ontime (container) and Companion (Node) read the time zone only when they start. This happens
+            # once, right after the start of the device – never later during a show.
+            systemctl try-restart showplaypi-ontime.service showplaypi-companion.service
         fi
         exit 0
     fi
