@@ -1,0 +1,167 @@
+name: Bug report
+description: Something does not work as described in the README or docs/OSC.md
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem! Please check the **Known issues** in the
+        [README](https://github.com/robertskiba/ShowPlayPI#known-issues) first.
+
+        **Do not post passwords.** Remove them from the configuration and logs before pasting.
+
+  - type: input
+    id: version
+    attributes:
+      label: ShowPlayPI version
+      description: Shown on the setup page, in `version.txt` on the drive SHOWPLAYPI and when logging in via SSH.
+      placeholder: 1.0.0-beta.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: model
+    attributes:
+      label: Raspberry Pi model
+      options:
+        - Raspberry Pi 5
+        - Raspberry Pi 4 Model B
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ram
+    attributes:
+      label: RAM
+      options:
+        - 1 GB
+        - 2 GB
+        - 4 GB
+        - 8 GB
+        - 16 GB
+        - I don't know
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Operating mode
+      description: "`[SYSTEM] MODE` in showplaypi.ini"
+      options:
+        - browser
+        - video
+        - companion
+        - ontime
+    validations:
+      required: true
+
+  - type: dropdown
+    id: extras
+    attributes:
+      label: Extras switched on
+      multiple: true
+      options:
+        - Audio player ([AUDIO] ENABLED=yes)
+        - None
+
+  - type: dropdown
+    id: power
+    attributes:
+      label: Power supply
+      options:
+        - Official power supply
+        - Power over Ethernet (PoE HAT)
+        - USB-C from a computer
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: configuration
+    attributes:
+      label: How was the device configured?
+      multiple: true
+      options:
+        - Windows configurator via USB-C
+        - Windows configurator via the network share
+        - Text editor on the SD card or the drive SHOWPLAYPI
+        - SSH
+        - Not configured (delivery state)
+
+  - type: textarea
+    id: display
+    attributes:
+      label: Display and network
+      description: Which HDMI port, which display (or none), resolution; network with or without internet.
+      placeholder: |
+        HDMI port next to USB-C, Samsung TV at 1920x1080; network cable, no internet
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem as exactly as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Set MODE=video
+        2. Copy a video into the folder VIDEO
+        3. Restart
+        4. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: osc
+    attributes:
+      label: OSC commands involved (optional)
+      description: The OSC addresses and arguments you sent, and from which program (e.g. Bitfocus Companion).
+      placeholder: /showplaypi/video/select "010_Intro"
+
+  - type: textarea
+    id: configuration-file
+    attributes:
+      label: showplaypi.ini (optional)
+      description: The relevant sections of the configuration – remove passwords first.
+      render: ini
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional, very helpful)
+      description: |
+        Log in via SSH (`ssh admin@<device name>.local`) and run, for example:
+        `journalctl -b --no-pager -u 'showplaypi-*' | tail -n 300`
+        For a single service: `journalctl -b --no-pager -u showplaypi-video` (or -kiosk, -companion, -ontime, -audio, -osc)
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Anything else?
+      description: Screenshots, photos of the screen, the media files involved (format, resolution), other devices on the network.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the known issues in the README.
+          required: true
+        - label: I removed all passwords from the configuration and logs above.
+          required: true

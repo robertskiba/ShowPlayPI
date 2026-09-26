@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Support
+    url: https://konftools.com
+    about: "Questions about using ShowPlayPI, or problems you do not want to discuss publicly: support@konftools.com"
+  - name: Documentation
+    url: https://github.com/robertskiba/ShowPlayPI#readme
+    about: Installation, configuration, modes and troubleshooting.
