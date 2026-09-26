@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0-beta.3] – 2026-09-26
+
+ShowPlayPI becomes a playout device with four modes: besides the web browser it now plays videos and still
+images, runs Bitfocus Companion or an Ontime timer on the device, and has an audio player for background
+music and jingles. The SD card gets a drive `SHOWPLAYPI` for configuration and media, reachable over USB-C,
+the network and a card reader. The new modes are first versions, tested on a Raspberry Pi 5.
+
 ### Fixed
 - **Raspberry Pi 5:** the kiosk did not start (Xorg stopped with "Cannot run in framebuffer mode" because
   the Pi 5 has separate display and 3D devices). Xorg now always uses the vc4 display controller.
@@ -124,6 +131,16 @@ versions follow [Semantic Versioning](https://semver.org/).
   so ShowPlayPI can appear in the Imager's OS list. It switches off the Imager's OS customisation, which
   would interfere with ShowPlayPI's own configuration.
 
+### Known issues
+- Tested on a Raspberry Pi 5 so far; the Raspberry Pi 4 is not tested yet with this version.
+- Only the HDMI port next to USB-C is fully supported; both outputs with the same picture are planned.
+- Video: crossfades fade through black for now; on the Pi 5, H.264 videos are only smooth up to 1080p30
+  (H.265/HEVC is decoded in hardware up to 4K60).
+- Companion on a 1 GB Pi: about 25–35 MB per connection – with about 15 connections the memory is nearly used
+  up, with 30 the device stalls. Use a Pi with 2 or 4 GB for larger Companion setups.
+- Without a network connection the picture may take up to about a minute longer to appear.
+- See `ROADMAP.md` ("Open before 1.0.0") for the complete list.
+
 ## [1.0.0-beta.2] – 2026-09-24
 
 ### Added
@@ -168,6 +185,7 @@ First beta of ShowPlayPI.
 - Configuration via USB-C depends on the power the computer's USB port delivers.
 - See `ROADMAP.md`, release 1.0, for the complete list.
 
-[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.2...HEAD
+[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.3...HEAD
+[1.0.0-beta.3]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.2...v1.0.0-beta.3
 [1.0.0-beta.2]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/robertskiba/ShowPlayPI/releases/tag/v1.0.0-beta.1
