@@ -236,7 +236,31 @@ Pi 5 – with and without a display, with and without network.
       `"playback": "may-stutter"`) and later in the web interface; nothing is converted on the device
 - [ ] **HandBrake preset "ShowPlayPI HEVC"** in `PRESETS/` on the drive: converts videos into the recommended
       format on the computer (the Pi 5 has no hardware encoder: 1080p60 to HEVC `ultrafast` ran at about 0.3×
-      real time, measured 2026-09-25); README and drive README explain the one-time import
+      real time, measured 2026-09-25); README and drive README explain the one-time import. Stays the fast way
+      for urgent cases, next to the conversion on the device
+- [ ] **Automatic conversion to HEVC on the device** (optional, `[VIDEO] CONVERT=no|idle|always`, default `no`;
+      also in the configurator):
+  - A background service finds every clip in `VIDEO/` (and its playlists) that is not HEVC and converts it,
+    one after the other in playlist order, to HEVC in good quality (x265 preset `medium`); the audio track is
+    kept. `ffmpeg` is added as a package (small – the libraries come with mpv).
+  - `idle`: converts only while nothing is played (player stopped or another mode) – no effect on the show.
+    `always`: converts during playback too, on at most two of the four cores with low priority (`nice`,
+    `ionice`, CPU quota); the player keeps playing the original as well as it can – H.264 above 1080p30 may
+    stutter on the Pi 5, which has to decode it in software.
+  - The new file is written to a hidden work folder on the drive first and checked (duration, decodable);
+    only then it takes the original's place under the same name with `.mp4`, and the original moves to
+    `ORIGINALS/VIDEO/…` (same subfolders, outside `VIDEO`, so it is no playlist). The player picks up the new
+    file at its next rescan. A name that already exists gets a rule for the conflict.
+  - Power loss, unplugged USB cable (drive handed to a computer) or a missing drive: the unfinished file is
+    discarded and the clip is started again later; the original is never touched before the new file is checked.
+  - Checks the free space before every clip (original and copy exist at the same time; the drive has only
+    about 3 GB on a 16 GB card) and skips with a note if it is not enough; the originals keep using space.
+  - Pi 4: H.264 up to 1080p60 is decoded in hardware there, so only formats without hardware decoding are
+    converted.
+  - Progress in the log and in the OSC file list (e.g. `"converting": 45`), later in the web interface.
+  - Duration (estimate, two cores, good quality, 3-minute clip): Pi 5 about 1–2 hours at 1080p30, 2–4 hours at
+    1080p60, half a day to a day at 4K; Pi 4 about 3–5 or 6–10 hours – realistic overnight, not during a
+    break. Needs a cooler on the Pi 5 (Active Cooler or the fan of the PoE HAT), otherwise it throttles.
 - [ ] Durations of all files in the file lists (not only after they have played once)
 
 **Companion and Ontime**
@@ -378,10 +402,12 @@ Stream Deck and other USB control surfaces plugged into the Pi work with a **Com
 | Image size | Companion (about 910 MB installed) and the Ontime image (about 210 MB) make the download about 0.4 GB larger (now 1.4 GB) – acceptable, or download them on the first start of the mode instead? | 1.0 |
 | Update rollback | Roll back ShowPlayPI files only (small) or keep two complete Linux partitions (A/B, doubles the space needed)? Recommended: ShowPlayPI files only | 2.0 |
 | Update channels | Stable channel via tags on `main` or a separate `stable` branch? | 2.0 |
-| Video conversion on the device | Optional (opt-in) background conversion of flagged videos to HEVC, only while nothing plays, the original replaced only after a complete, verified copy? The Pi 5 has no hardware encoder (hours per clip at good quality, full CPU load, heat, needs room for both copies on the drive) – so far the preset for converting on the computer is preferred | 1.2 |
 
 ## Decided
 
+- **Automatic conversion to HEVC on the device** (2026-09-26): optional (`[VIDEO] CONVERT=no|idle|always`,
+  default `no`), in release 1.2 – originals are kept in `ORIGINALS/VIDEO/`, the HandBrake preset stays the
+  fast way on a computer. Details under 1.2.
 - **Release path** (2026-09-26): `1.0.0-beta.3` is the first public beta; after the tests on Pi 5 and Pi 4
   `1.0.0-rc.1`, then `1.0.0`. The roadmap was reorganised around what is already in 1.0.
 - **Audio player as an extra, not a mode** (2026-09-25): switched on with `[AUDIO] ENABLED=yes` in any of the
