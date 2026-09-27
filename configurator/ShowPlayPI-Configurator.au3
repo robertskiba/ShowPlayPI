@@ -1,7 +1,7 @@
 #pragma compile(Icon, ShowPlayPI-Configurator.ico)
 #pragma compile(ProductName, ShowPlayPI Configurator)
 #pragma compile(FileDescription, ShowPlayPI Configurator)
-#pragma compile(ProductVersion, 1.0.0-beta.3)
+#pragma compile(ProductVersion, 1.0.0-rc.1)
 #pragma compile(FileVersion, 1.0.0.0)
 #pragma compile(OriginalFilename, ShowPlayPI-Configurator.exe)
 
@@ -27,7 +27,7 @@ EndIf
 
 Global Const $g_sIniPath = @ScriptDir & "\showplaypi.ini"
 ; About page values: change these for future releases.
-Global Const $g_sAppVersion = "1.0.0-beta.3"
+Global Const $g_sAppVersion = "1.0.0-rc.1"
 Global Const $g_sDownloadUrl = "https://konftools.com"
 Global Const $g_sSupportEmail = "support@konftools.com"
 
@@ -82,17 +82,20 @@ GUICtrlSetTip($g_idTimezone, "auto = detected from the internet connection at ev
 GUICtrlCreateLabel("NTP server", 45, 210, 180, 20)
 Global $g_idNtpServer = GUICtrlCreateInput(IniRead($g_sIniPath, "SYSTEM", "NTP_SERVER", "192.53.103.108"), 245, 205, 390, 26)
 
-GUICtrlCreateLabel("The default NTP server is operated by PTB in Germany.", 245, 240, 390, 35)
+GUICtrlCreateLabel("The default NTP server is operated by PTB in Germany.", 245, 238, 390, 20)
+Global $g_idTimeServer = GUICtrlCreateCheckbox("Time server for the network", 245, 262, 390, 24)
+_SetCheckboxFromIni($g_idTimeServer, IniRead($g_sIniPath, "TIME_SERVER", "ENABLED", "yes"))
+GUICtrlSetTip($g_idTimeServer, "Other devices can take the time from ShowPlayPI (NTP, UDP port 123). Without a time source the device serves its own clock with a low priority.")
 
-Global $g_idUsbConfigMode = GUICtrlCreateCheckbox("USB configuration mode while a computer is connected", 245, 285, 390, 24)
+Global $g_idUsbConfigMode = GUICtrlCreateCheckbox("USB configuration mode while a computer is connected", 245, 315, 390, 24)
 _SetCheckboxFromIni($g_idUsbConfigMode, IniRead($g_sIniPath, "SYSTEM", "USB_CONFIG_MODE", "yes"))
 GUICtrlCreateLabel("Playback pauses while a computer uses the drive over USB-C; after unplugging, " & _
-    "ShowPlayPI restarts with the new settings.", 245, 312, 390, 35)
+    "ShowPlayPI restarts with the new settings.", 245, 342, 390, 35)
 
-Global $g_idBootMessages = GUICtrlCreateCheckbox("Show boot messages (for troubleshooting)", 245, 360, 390, 24)
+Global $g_idBootMessages = GUICtrlCreateCheckbox("Show boot messages (for troubleshooting)", 245, 390, 390, 24)
 _SetCheckboxFromIni($g_idBootMessages, IniRead($g_sIniPath, "SYSTEM", "BOOT_MESSAGES", "no"))
 GUICtrlCreateLabel("Shows the system messages instead of the startup image while ShowPlayPI starts. " & _
-    "A change restarts ShowPlayPI once more automatically.", 245, 387, 390, 35)
+    "A change restarts ShowPlayPI once more automatically.", 245, 417, 390, 35)
 
 ; -----------------------------------------------------------------------------
 ; Network tab
@@ -483,6 +486,7 @@ Func _CreateDefaultIni()
     $bSuccess = IniWrite($g_sIniPath, "VNC", "ENABLED", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "VNC", "PORT", "5900") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK_SHARE", "ENABLED", "yes") And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "TIME_SERVER", "ENABLED", "yes") And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISCOVERY", "UPNP", "yes") And $bSuccess
 
     $bSuccess = IniWrite($g_sIniPath, "OSC", "ENABLED", "yes") And $bSuccess
@@ -713,6 +717,7 @@ Func _SaveConfiguration($bRestart = False)
 
     $bSuccess = IniWrite($g_sIniPath, "VNC", "ENABLED", _CheckboxValue($g_idVncEnabled)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "NETWORK_SHARE", "ENABLED", _CheckboxValue($g_idShareEnabled)) And $bSuccess
+    $bSuccess = IniWrite($g_sIniPath, "TIME_SERVER", "ENABLED", _CheckboxValue($g_idTimeServer)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "DISCOVERY", "UPNP", _CheckboxValue($g_idUpnpEnabled)) And $bSuccess
     $bSuccess = IniWrite($g_sIniPath, "VNC", "PORT", String($iVncPort)) And $bSuccess
 

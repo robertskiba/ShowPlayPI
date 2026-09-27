@@ -16,8 +16,8 @@ A platform for Raspberry Pi 4B and Pi 5 with **separate modes**. Exactly one of 
 | `companion` | Browser mode plus Bitfocus Companion in the background (native ARM64 build); the browser shows the Companion emulator chooser (touch, mouse, keyboard) |
 
 **Extras** can be switched on next to any mode and never take over the screen: the **audio player**
-(background music and jingles), later an NTP time server, HDMI-CEC display control, GPIO and Companion
-Satellite.
+(background music and jingles) and the **time server** for the network, later HDMI-CEC display control, GPIO
+and Companion Satellite.
 
 In `ontime` and `companion` mode the browser can be switched off (`[DISPLAY] BROWSER=no`): the server runs
 without X11/Chromium and the screen only shows a text console with device name, IP address and the address of
@@ -48,7 +48,7 @@ More modes should be easy to add later.
 | **1.2** | The modes, second round: shared OSC service with feedbacks, video crossfades, Companion/Ontime without browser, file checks | 1.0 |
 | **2.0** | Updates and security: auto-update (ShowPlayPI, Companion, Ontime), factory reset, own passwords, configurator wizard | 1.x |
 | **2.1** | Web interface: configuration and media upload from any device | 2.0 |
-| **2.2** | More extras: NTP time server, HDMI-CEC, GPIO, thumbnail | 1.2 |
+| **2.2** | More extras: HDMI-CEC, GPIO, thumbnail, time from a radio or GPS receiver | 1.2 |
 | **3.0** | Companion module, distribution | 1.2 |
 | **3.1** | Companion Satellite: USB control surfaces on the Pi for a remote Companion (extra) | 2.0 |
 
@@ -86,8 +86,14 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
       connections and advice), `/showplaypi/system` reports it via OSC; the RAM recommendation is in README
       and configurator (1 GB up to about 5 connections, 2 GB typical events, 4 GB large setups)
 - [ ] Measure Companion on 2 and 4 GB and with real modules (ATEM, vMix …) to confirm the recommendation
-- [ ] Power only via USB-C from a PC: the Pi 4 works (USB configuration mode); the Pi 5 does not start at all
-      from a PC USB port (red LED – the bootloader never runs, no software can fix that) – documented
+- [ ] **RTC battery on the Pi 5:** test the official battery (clock after a power-off without network);
+      decide whether sold devices come with it and whether its charging is switched on
+      (`dtparam=rtc_bbat_vchg=3000000` in `config.txt`, off by default)
+- [ ] Time server on the Pi 4 (no real-time clock at all): clock after a start without network
+- [ ] Power only via USB-C from a PC (USB configuration mode): the Pi 5 starts without problems from a PC's
+      USB-C port (maintainer, 2026-09-27); an early test at a weak USB 2 port did not start (red LED) – the
+      README asks for a USB-C or USB 3 port. Still to test: the Pi 4, and the USB configuration mode on the Pi 5
+      powered only by the PC (after unplugging it is off instead of restarting)
 - [ ] **Power over Ethernet:** official PoE HATs on Pi 4B and Pi 5 (PoE+ recommended) – the Pi 5 test device
       runs on PoE; verify stable operation under load and the HAT fan control
 - [x] Version number visible on the setup page (2026-09-27: with release date and operating mode in the first panel; INI, configurator and SSH banner show it as well)
@@ -149,6 +155,16 @@ Pi 5 – with and without a display, with and without network.
 - [x] **Unique device names** (`showplaypi-` plus the last six digits of the MAC address), quiet boot with the
       startup image, `Clear-SD-Card.cmd` on the boot partition
 - [x] **Time zone from the internet connection** (`[SYSTEM] TIMEZONE=auto`, default)
+- [x] **Clock and time server** (2026-09-27, tested on the Pi 5): chrony replaces systemd-timesyncd, which
+      noticed NetworkManager's connection only after minutes – until then HTTPS failed (e.g. Companion's module
+      list). Sources: `NTP_SERVER` (preferred), Debian pool, Cloudflare, servers announced via DHCP; in networks
+      that block NTP the Date header of a web server. Without a battery the clock starts from the latest of:
+      the saved last known time (every 10 minutes and at shutdown), the date of `showplaypi.ini` on the drive
+      (saved on a computer, so its clock) and the build time of the image. Companion and Ontime wait up to 20 s
+      for the clock and are restarted if it is set later. **Time server for the network**
+      (`[TIME_SERVER] ENABLED=yes`, configurator: System tab): NTP on UDP 123, without a source its own clock
+      with stratum 10; announced via Bonjour (`_ntp._udp` – UPnP has no type for time servers); status on
+      the setup page and in `/showplaypi/system`. Checked with Windows `w32tm /stripchart`
 - [x] **OSC on UDP port 23878** (was 9000); commands of inactive modes are ignored
 
 ### Browser ✅
@@ -176,6 +192,11 @@ Pi 5 – with and without a display, with and without network.
       `/home/admin/companion`), bundled with the image; the browser always starts with the emulator chooser
 - [x] OSC `emulators` (list as JSON for a dropdown), `emulator <id|name>`, `tablet`, `restart`
 - [x] Companion's own udev rules for USB surfaces installed automatically (`COMPANION_SYNC_UDEV_RULES_COMMAND`)
+- [x] **Offline module bundle** (2026-09-27): Bitfocus' bundle of all modules of the Companion version (about
+      150 MB, 823 modules) is part of the image and installed on the first start of the mode into Companion's
+      module folders, exactly where Companion's own import puts them (about 75 s on the Pi 5, 470 MB on the
+      Linux partition) – Companion can add connections without internet; modules only use memory while a
+      connection uses them. Updated together with Companion (2.0)
 - [x] **Backups on the SHOWPLAYPI drive:** Companion's backup folder is a link to `COMPANION/BACKUP/` (no
       change to Companion's configuration); the log stays in the system journal
 
@@ -359,9 +380,9 @@ installing anything.
 
 Optional services next to any mode, never using the screen, each switched on in its own INI section.
 
-- [ ] **NTP time server** for the show network. Serves time only while the Pi itself is synchronised (the
-      Pi 4 has no real-time clock; the Pi 5 has one, but it needs a backup battery) – never hands out a wrong
-      time.
+- [ ] **Time from a radio or GPS receiver** for show networks without internet: a USB GPS receiver (worldwide;
+      with PPS accurate to microseconds) or a DCF77 receiver (central Europe) as a source for chrony – the time
+      server (1.0) then serves an exact time offline too.
 - [ ] **HDMI-CEC display control** via OSC – the complete, universal set and nothing more: power on/off
       (standby), volume up/down, mute, input/source selection; for both HDMI outputs. Feedback of the
       display's power state where the display reports it.
@@ -423,6 +444,10 @@ Stream Deck and other USB control surfaces plugged into the Pi work with a **Com
 
 ## Decided
 
+- **The time server also serves an unsynchronised clock** (2026-09-27): offline, one common time for all
+  devices of the show network is better than none – with stratum 10 it is only used by devices that have no
+  better source. The clock never goes back before the last known time, at the latest the time the
+  configuration was saved on a computer.
 - **Automatic conversion to HEVC on the device** (2026-09-26): optional (`[VIDEO] CONVERT=no|idle|always`,
   default `no`), in release 1.2 – originals are kept in `ORIGINALS/VIDEO/`, the HandBrake preset stays the
   fast way on a computer. Details under 1.2.

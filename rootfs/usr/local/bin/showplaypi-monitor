@@ -85,6 +85,20 @@ def throttled():
     return {"undervoltage": bool(value & 0x1), "now": bool(value & 0x4), "since_boot": bool(value & 0x50000)}
 
 
+def time_status():
+    """Clock and time source from chrony: {"synchronized", "source", "stratum"}."""
+    try:
+        fields = subprocess.run(["chronyc", "-c", "tracking"], capture_output=True, text=True,
+                                timeout=3).stdout.strip().split(",")
+        stratum = int(fields[2])
+        synchronized = fields[-1] != "Not synchronised"
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+    # Stratum 10 from the own clock ("local" in chrony) is no external source
+    source = fields[1] if synchronized and stratum < 10 else None
+    return {"synchronized": synchronized and stratum < 10, "source": source, "stratum": stratum}
+
+
 def free_mb(path):
     try:
         stat = os.statvfs(path)
@@ -191,6 +205,7 @@ def main():
             "cores": cpu[1:],
             "ram": memory,
             "temperature": temperature(),
+            "time": time_status(),
             "throttled": throttle_state,
             "uptime": int(float(Path("/proc/uptime").read_text().split()[0]) * 1000),
             "drives": {"system": {"free": free_mb("/")},

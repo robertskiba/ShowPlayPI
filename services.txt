@@ -7,6 +7,10 @@ enable showplaypi-media.service
 enable showplaypi-restart.path
 enable showplaypi-system-config.service
 enable showplaypi-timezone.service
+# Clock check after the start (time server, web server fallback, restart of Companion/Ontime if needed)
+enable showplaypi-clock-restore.service
+enable showplaypi-clock.service
+enable showplaypi-clock-save.timer
 enable showplaypi-network-config.service
 enable showplaypi-usb-gadget.service
 enable showplaypi-usb-drive.service

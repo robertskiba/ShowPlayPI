@@ -81,7 +81,11 @@ NTP_SERVER=192.53.103.108
     NTP server used for automatic clock synchronisation.
 
     The default IP belongs to a public PTB time server in Germany.
-    An IP address works without DNS.
+    An IP address works without DNS. Public time servers and the time
+    servers the router announces are a reserve.
+
+    Without internet the clock starts from the latest known time: the time
+    of the last run, or the time showplaypi.ini was last saved on a computer.
 
 
 USB_CONFIG_MODE=yes
@@ -404,6 +408,28 @@ ENABLED
 
     User name admin, password admin. While a computer uses the drive over
     USB-C, the network share pauses.
+
+
+===============================================================================
+Time Server
+===============================================================================
+
+[TIME_SERVER]
+
+ENABLED=yes
+
+
+ENABLED
+
+    Available values:
+
+        yes
+        no
+
+    Serves the time to every device on the network (NTP, UDP port 123).
+    Enter showplaypi-xxxxxx.local or the IP address as time server on the
+    other devices. Without an internet time source ShowPlayPI serves its own
+    clock, so all devices of a network without internet share the same time.
 
 
 ===============================================================================

@@ -1,0 +1,6 @@
+[Unit]
+Description=ShowPlayPI clock: keep the current time for the next start
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/showplaypi-clock save

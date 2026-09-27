@@ -19,12 +19,18 @@ Environment="COMPANION_SYNC_UDEV_RULES_COMMAND=sudo -n /usr/local/sbin/showplayp
 ExecStartPre=+/usr/local/sbin/showplaypi-companion-udev
 # Companion's backups go to COMPANION/BACKUP on the SHOWPLAYPI drive (a link, Companion's settings unchanged)
 ExecStartPre=/usr/local/bin/showplaypi-companion-backups
+# HTTPS (modules, updates) needs the right time: wait up to 20 s for the clock while a network is up
+ExecStartPre=-/usr/local/sbin/showplaypi-clock --wait 20
+# Offline module bundle (all modules of the store): installed on the first start of the mode, about a minute
+ExecStartPre=-/usr/local/bin/showplaypi-companion-modules
 # Configuration on the Linux partition; the web interface on port 8000 (Companion's default)
 ExecStart=/opt/companion/companion_headless.sh --config-dir /home/admin/companion --admin-address 0.0.0.0 --admin-port 8000 --no-notifications
 Restart=always
 RestartSec=3
 # Companion saves its database on shutdown
 TimeoutStopSec=20
+# The first start installs the offline module bundle
+TimeoutStartSec=10min
 
 [Install]
 WantedBy=multi-user.target

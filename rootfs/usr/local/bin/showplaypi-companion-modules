@@ -1,0 +1,77 @@
+#!/usr/bin/python3
+"""Companion mode: installs the offline module bundle that comes with ShowPlayPI.
+
+Without internet Companion cannot load modules from its store – on isolated event networks no connection could
+be added. The image therefore contains Bitfocus' offline module bundle of the installed Companion version. At
+the start of Companion (ExecStartPre, as the user admin) every module of the bundle that is not installed yet
+is put where Companion's own "Import offline module bundle" puts it: <config>/modules/<id>-<version> for
+connections, <config>/surfaces/<id>-<version> for surfaces. Companion loads them at its start; modules only use
+memory while a connection uses them. Newer versions still come from the store when there is internet.
+
+Runs only when the bundle changed since the last run (e.g. a new ShowPlayPI release), so a normal start is
+not delayed.
+"""
+
+import hashlib
+import json
+import logging
+import os
+import shutil
+import sys
+import tarfile
+from pathlib import Path
+
+BUNDLE = Path("/usr/share/showplaypi/companion/companion-offline-module-bundle.tar.gz")
+CONFIG = Path("/home/admin/companion")
+MARKER = CONFIG / ".showplaypi-module-bundle"
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("showplaypi-companion-modules")
+
+
+def bundle_id(path):
+    """Size and modification time – enough to notice a new bundle without reading 150 MB."""
+    stat = path.stat()
+    return hashlib.sha256(f"{path.name}:{stat.st_size}:{int(stat.st_mtime)}".encode()).hexdigest()
+
+
+def main():
+    bundle = Path(sys.argv[1]) if len(sys.argv) > 1 else BUNDLE
+    if not bundle.is_file():
+        return
+    current = bundle_id(bundle)
+    if MARKER.exists() and MARKER.read_text().strip() == current:
+        return
+
+    log.info("Installing Companion modules from the offline bundle (first start – takes a minute) ...")
+    staging = CONFIG / ".module-bundle-staging"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    try:
+        with tarfile.open(bundle, "r:gz") as tar:
+            tar.extractall(staging, filter="data")
+
+        installed = present = 0
+        for source in sorted(staging.iterdir()):
+            try:
+                manifest = json.loads((source / "companion" / "manifest.json").read_text(encoding="utf-8"))
+                module_id, version = manifest["id"], manifest["version"]
+            except (OSError, ValueError, KeyError):
+                continue
+            kind = manifest.get("type") or "connection"
+            target = CONFIG / ("surfaces" if kind == "surface" else "modules") / f"{module_id}-{version}"
+            if target.exists():
+                present += 1
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.rename(source, target)
+            installed += 1
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    MARKER.write_text(current + "\n")
+    log.info("Offline module bundle: %d module(s) installed, %d already present.", installed, present)
+
+
+if __name__ == "__main__":
+    main()

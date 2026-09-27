@@ -9,3 +9,4 @@
 /var/lib/showplaypi/auto-hostname
 /usr/local/sbin/showplaypi-power-mode
 /etc/systemd/system/showplaypi-power-mode.service
+/etc/systemd/timesyncd.conf.d/showplaypi.conf

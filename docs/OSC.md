@@ -119,7 +119,8 @@ old (`showplaypi-monitor`).
 {"cpu": 23, "cores": [30, 18, 25, 19],
  "ram": {"total": 986, "available": 305, "used": 681, "percent": 69,
          "swap_total": 985, "swap_used": 516, "swap_percent": 52, "state": "normal"},
- "temperature": 48.0, "throttled": {"undervoltage": false, "now": false, "since_boot": false},
+ "temperature": 48.0, "time": {"synchronized": true, "source": "192.53.103.108", "stratum": 2},
+ "throttled": {"undervoltage": false, "now": false, "since_boot": false},
  "uptime": 392820, "drives": {"system": {"free": 5107}, "media": {"free": 2640}},
  "companion_connections": 2}
 ```
@@ -127,6 +128,8 @@ old (`showplaypi-monitor`).
 - CPU load in percent (total and per core, over the last five seconds); RAM, swap and free space in MB;
   temperature in °C; `throttled` from the firmware (under-voltage, throttling now or since the start);
   uptime in milliseconds.
+- `time` – whether the clock is synchronised, its source (address of the time server) and the device's
+  stratum (distance to the reference clock; 10 = own clock without an external source).
 - `ram.state` – `normal`, `warning` (swap at least 80 % used or less than 120 MB available) or `critical`
   (swap at least 95 % used and less than 80 MB available: the device may stall). A change is also logged,
   in the Companion mode with advice.

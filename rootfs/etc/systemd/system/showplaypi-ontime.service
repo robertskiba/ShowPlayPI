@@ -12,6 +12,8 @@ Type=simple
 ExecStartPre=/usr/local/sbin/showplaypi-container-image docker.io/getontime/ontime:v4 ontime-v4.tar
 ExecStartPre=/usr/bin/install -d -o admin -g admin /home/admin/ontime
 ExecStartPre=-/usr/bin/podman rm --force showplaypi-ontime
+# Wait up to 20 s for the clock while a network is up (the clock is only set once a time server answers)
+ExecStartPre=-/usr/local/sbin/showplaypi-clock --wait 20
 # Host network: web interface on port 4001, Ontime's own OSC ports work as configured in Ontime.
 # Time zone: Node in the image ignores a mounted /etc/localtime and needs TZ ([SYSTEM] TIMEZONE).
 ExecStart=/bin/sh -c 'exec /usr/bin/podman run --rm --name showplaypi-ontime --network host --pull=never \

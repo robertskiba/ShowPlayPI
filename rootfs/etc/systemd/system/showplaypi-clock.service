@@ -1,0 +1,11 @@
+[Unit]
+Description=ShowPlayPI clock check after the start (time server, web server fallback)
+After=showplaypi-system-config.service showplaypi-clock-restore.service chrony.service
+
+[Service]
+# Runs in the background and never delays the start
+Type=simple
+ExecStart=/usr/local/sbin/showplaypi-clock
+
+[Install]
+WantedBy=multi-user.target

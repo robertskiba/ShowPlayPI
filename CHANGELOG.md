@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Clock right after the start:** the clock was only set up to several minutes after the network was up (the
+  time service did not notice the connection), and until then every HTTPS connection failed – e.g. Companion
+  could not load its module list. The clock is now set as soon as the network is up; public time servers are a
+  reserve for the configured one, and in networks that block time servers the time is taken from a web
+  server. Companion and Ontime wait briefly for the clock at their start and are restarted once if it is set
+  only later.
 - Companion and Ontime always use the device's time zone: they start only after the time zone from
   `showplaypi.ini` is set, and both are restarted once when `TIMEZONE=auto` detects a different time zone
   after the start (before, Companion kept the previous time zone until the next restart).
@@ -22,6 +28,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 - OSC `/showplaypi/system`: CPU load, memory (with warning state), temperature, under-voltage, uptime and free
   space as JSON, in every mode.
 - The setup page shows the ShowPlayPI version with its release date and the operating mode.
+- **Companion works offline:** the image contains Bitfocus' offline module bundle (all 800+ modules of the
+  Companion version), installed on the first start of the Companion mode (about a minute) – connections can be
+  added without internet. With internet, newer module versions still come from the store.
+- **Time server for the network:** ShowPlayPI serves its time via NTP (UDP port 123) to every device in the
+  network – e.g. computers, Companion or clocks in a show network without internet. Announced via Bonjour,
+  shown on the setup page, switched off with `[TIME_SERVER] ENABLED=no` (configurator: System tab). Without an
+  external time source the device still serves its own clock with a low priority (stratum 10): devices of an
+  offline network share the same time, and a device with a better source ignores it. chrony replaces
+  systemd-timesyncd; time servers the router announces via DHCP are used as well.
+- **Time without internet:** the Pi has no battery-backed clock. At the start the clock is set to the latest
+  of: the time saved during the last run (every 10 minutes and at shutdown), the time `showplaypi.ini` was
+  last saved on a computer (the date of the file on the `SHOWPLAYPI` drive) and the build time of the image.
+  `/showplaypi/system` reports whether the clock is synchronised.
 
 ## [1.0.0-beta.3] – 2026-09-26
 

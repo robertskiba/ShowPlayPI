@@ -1,7 +1,8 @@
 #!/bin/bash
 
 CONFIG="/etc/showplaypi/showplaypi.ini"
-TIMESYNCD_CONFIG="/etc/systemd/timesyncd.conf.d/showplaypi.conf"
+CHRONY_CONFIG="/etc/chrony/conf.d/showplaypi.conf"
+AVAHI_NTP_SERVICE="/etc/avahi/services/showplaypi-ntp.service"
 
 ini_get() {
     local section="$1"
@@ -118,23 +119,45 @@ else
     log_message "Invalid timezone ignored: $TIMEZONE_VALUE"
 fi
 
+# Time: chrony sets the clock and – [TIME_SERVER] ENABLED=yes, the default – serves it to the whole network.
+# Sources: the configured NTP server (preferred), public servers (pool line of Debian's chrony.conf and
+# Cloudflare), time servers the router announces via DHCP (Debian's NetworkManager hook). Without any of them
+# the device serves its own clock with a low priority (stratum 10): a device with a better source ignores it,
+# and devices without one at least share the same time. The clock never goes back before the last known time
+# (showplaypi-clock restore: saved time, time the configuration was saved on a computer, build of the image).
+NEW_CHRONY_CONFIG="# Written by showplaypi-system-config from showplaypi.ini – changes here are overwritten"
+
 if valid_ipv4 "$NTP_SERVER_VALUE"; then
-    mkdir -p "$(dirname "$TIMESYNCD_CONFIG")"
-
-    NEW_NTP_CONFIG="[Time]
-NTP=$NTP_SERVER_VALUE
-FallbackNTP="
-
-    if [ ! -f "$TIMESYNCD_CONFIG" ] ||
-       [ "$(cat "$TIMESYNCD_CONFIG")" != "$NEW_NTP_CONFIG" ]; then
-
-        printf '%s\n' "$NEW_NTP_CONFIG" > "$TIMESYNCD_CONFIG"
-        timedatectl set-ntp true
-        systemctl restart systemd-timesyncd
-        log_message "NTP server changed to: $NTP_SERVER_VALUE"
-    fi
-else
+    NEW_CHRONY_CONFIG+="
+server $NTP_SERVER_VALUE iburst prefer"
+elif [ -n "$NTP_SERVER_VALUE" ]; then
     log_message "Invalid NTP server ignored: $NTP_SERVER_VALUE"
+fi
+NEW_CHRONY_CONFIG+="
+server time.cloudflare.com iburst"
+
+case "$(ini_get TIME_SERVER ENABLED | tr '[:upper:]' '[:lower:]')" in
+    no|false|0|off)
+        TIME_SERVER="no"
+        rm -f "$AVAHI_NTP_SERVICE"
+        ;;
+    *)
+        TIME_SERVER="yes"
+        NEW_CHRONY_CONFIG+="
+# Time server for the network (every client may ask)
+allow
+# Without an external source: serve the own clock with a low priority
+local stratum 10 orphan"
+        cmp -s /usr/share/showplaypi/avahi/ntp.service "$AVAHI_NTP_SERVICE" ||
+            install -m 644 /usr/share/showplaypi/avahi/ntp.service "$AVAHI_NTP_SERVICE"
+        ;;
+esac
+
+if [ "$(cat "$CHRONY_CONFIG" 2>/dev/null)" != "$NEW_CHRONY_CONFIG" ]; then
+    mkdir -p "$(dirname "$CHRONY_CONFIG")"
+    printf '%s\n' "$NEW_CHRONY_CONFIG" > "$CHRONY_CONFIG"
+    systemctl try-restart chrony.service
+    log_message "Time configuration applied (NTP server: ${NTP_SERVER_VALUE:-none}, time server for the network: $TIME_SERVER)."
 fi
 
 # Boot messages: quiet boot with the logo (default) or visible boot text for troubleshooting.

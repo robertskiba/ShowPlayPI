@@ -99,6 +99,15 @@ fi
 echo "$COMPANION_SHA256  $COMPANION_PACKAGE" | sha256sum -c --quiet \
     || die "Companion checksum mismatch – delete $COMPANION_PACKAGE and start again"
 
+COMPANION_BUNDLE=$CACHE/$(basename "$COMPANION_BUNDLE_URL")
+if [[ ! -f $COMPANION_BUNDLE ]]; then
+    log "Downloading the Companion offline module bundle $(basename "$COMPANION_BUNDLE")"
+    curl -fL --progress-bar -o "$COMPANION_BUNDLE.part" "$COMPANION_BUNDLE_URL"
+    mv "$COMPANION_BUNDLE.part" "$COMPANION_BUNDLE"
+fi
+echo "$COMPANION_BUNDLE_SHA256  $COMPANION_BUNDLE" | sha256sum -c --quiet \
+    || die "Module bundle checksum mismatch – delete $COMPANION_BUNDLE and start again"
+
 ONTIME_CACHE=$CACHE/ontime-$(basename "${ONTIME_IMAGE##*:}").tar
 if [[ ! -f $ONTIME_CACHE ]]; then
     log "Downloading Ontime container image $ONTIME_IMAGE (ARM64)"
@@ -149,6 +158,7 @@ log "Installing Companion and the Ontime container image"
 rm -rf "$ROOT/opt/companion"
 mkdir -p "$ROOT/opt/companion"
 tar -xzf "$COMPANION_PACKAGE" -C "$ROOT/opt/companion" --strip-components=1 --no-same-owner
+install -D -m 644 "$COMPANION_BUNDLE" "$ROOT/usr/share/showplaypi/companion/companion-offline-module-bundle.tar.gz"
 install -D -m 644 "$ONTIME_CACHE" "$ROOT/usr/share/showplaypi/containers/$ONTIME_ARCHIVE"
 # A freshly flashed card should only show the user files, even before the first start
 python3 "$SRC/rootfs/usr/local/sbin/showplaypi-hide-boot-files" "$ROOT/boot/firmware" | sed 's/^/    /'

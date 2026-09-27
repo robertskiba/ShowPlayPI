@@ -1,0 +1,15 @@
+[Unit]
+Description=ShowPlayPI clock: never before the last known time (saved time, date of showplaypi.ini, build)
+# The drive SHOWPLAYPI is mounted (date of showplaypi.ini, written by the computer that last saved it)
+After=showplaypi-media.service
+Before=showplaypi-clock.service showplaypi-companion.service showplaypi-ontime.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/showplaypi-clock restore
+# Keep the time for the next start
+ExecStop=/usr/local/sbin/showplaypi-clock save
+
+[Install]
+WantedBy=multi-user.target

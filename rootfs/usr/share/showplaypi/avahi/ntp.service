@@ -1,0 +1,10 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Announces the time server of ShowPlayPI ([TIME_SERVER] ENABLED=yes); installed by showplaypi-system-config -->
+<service-group>
+  <name replace-wildcards="yes">%h time server</name>
+  <service>
+    <type>_ntp._udp</type>
+    <port>123</port>
+  </service>
+</service-group>

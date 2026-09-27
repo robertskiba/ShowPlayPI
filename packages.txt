@@ -52,3 +52,6 @@ rtkit
 
 # --- Ontime mode: Ontime runs as a container (no permanently running daemon, unlike Docker) ---
 podman
+
+# --- Time: sets the clock and serves it to the network ([TIME_SERVER]); replaces systemd-timesyncd ---
+chrony

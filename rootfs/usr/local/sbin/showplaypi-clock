@@ -1,0 +1,146 @@
+#!/bin/bash
+# ShowPlayPI: makes sure the clock is right after the start – the Pi has no battery-backed clock, and a wrong
+# clock breaks every HTTPS connection (Companion's modules and updates, web pages).
+#
+#   showplaypi-clock restore      (showplaypi-clock-restore.service, early at the start) the clock never
+#     starts before the last known time: the time saved while running (showplaypi-clock save), the time a
+#     computer last saved showplaypi.ini on the drive SHOWPLAYPI (date of the file in the exFAT file system,
+#     written with the computer's clock) and the build of the image – whichever is the latest. Offline this is
+#     better than nothing; as soon as a time server answers, chrony corrects the clock.
+#   showplaypi-clock save         (every 10 minutes and at shutdown) keeps the current time for the next start
+#   showplaypi-clock              (showplaypi-clock.service) watches the clock after the start:
+#     - waits for chrony (Debian's NetworkManager hooks make it synchronise as soon as the network is up and
+#       add time servers the router announces via DHCP)
+#     - if no time server answers within 2 minutes of a working network (networks that block NTP), the clock
+#       is set from the Date header of a web server – over plain HTTP, which does not depend on the clock like
+#       HTTPS does; chrony corrects it later if a time server becomes reachable
+#     - if the clock was set only after Companion or Ontime had started, they are restarted once – this
+#       happens only right after the start of the device, never later during a show
+#     - gives up after 15 minutes (e.g. an isolated network without internet: the clock is simply not set)
+#   showplaypi-clock --wait <seconds>
+#     waits until the clock is set, at most <seconds>, and only while a network is up (ExecStartPre of
+#     Companion and Ontime); without a network it returns at once
+
+HTTP_TIME_URLS="http://ip-api.com/ http://www.msftconnecttest.com/connecttest.txt"
+LAST_KNOWN_FILE="/var/lib/showplaypi/last-known-time"
+MEDIA_CONFIG="/media/showplaypi/showplaypi.ini"
+BUILD_FILE="/etc/showplaypi-build"
+HTTP_AFTER_SECONDS=120
+GIVE_UP_SECONDS=900
+JUMP_SECONDS=300
+POLL_SECONDS=2
+
+synchronized() {
+    [ "$(timedatectl show --property=NTPSynchronized --value 2>/dev/null)" = "yes" ]
+}
+
+network_up() {
+    ip -4 route show default 2>/dev/null | grep -q .
+}
+
+uptime_seconds() {
+    cut -d. -f1 /proc/uptime
+}
+
+# Difference between the wall clock and the time since boot: it changes when the clock is set
+offset() {
+    echo $(( $(date +%s) - $(uptime_seconds) ))
+}
+
+http_time() {
+    local url header
+    for url in $HTTP_TIME_URLS; do
+        header="$(curl --silent --head --max-time 5 "$url" 2>/dev/null | tr -d '\r' | sed -n 's/^[Dd]ate: //p' | head -n 1)"
+        if [ -n "$header" ] && date --date="$header" +%s 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [ "${1:-}" = "save" ]; then
+    mkdir -p "$(dirname "$LAST_KNOWN_FILE")"
+    date +%s > "$LAST_KNOWN_FILE.new" && mv "$LAST_KNOWN_FILE.new" "$LAST_KNOWN_FILE"
+    exit 0
+fi
+
+if [ "${1:-}" = "restore" ]; then
+    latest=0
+    source_name=""
+    consider() {
+        [[ "$1" =~ ^[0-9]+$ ]] || return
+        if [ "$1" -gt "$latest" ]; then
+            latest="$1"
+            source_name="$2"
+        fi
+    }
+    consider "$(cat "$LAST_KNOWN_FILE" 2>/dev/null)" "time saved at the last run"
+    if mountpoint -q "$(dirname "$MEDIA_CONFIG")" && [ -f "$MEDIA_CONFIG" ]; then
+        consider "$(stat -c %Y "$MEDIA_CONFIG")" "date of showplaypi.ini on the drive SHOWPLAYPI"
+    fi
+    built="$(sed -n 's/^SHOWPLAYPI_BUILT=//p' "$BUILD_FILE" 2>/dev/null)"
+    [ -n "$built" ] && consider "$(date --date="$built" +%s 2>/dev/null)" "build of the image"
+
+    if [ "$latest" -gt $(( $(date +%s) + 60 )) ]; then
+        date --set="@$latest" >/dev/null
+        echo "Clock was behind – set to the last known time ($source_name): $(date)"
+    fi
+    exit 0
+fi
+
+if [ "${1:-}" = "--wait" ]; then
+    limit="${2:-20}"
+    waited=0
+    while [ "$waited" -lt "$limit" ] && network_up && ! synchronized; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    exit 0
+fi
+
+start_offset="$(offset)"
+online_since=""
+jump_at=""
+elapsed=0
+
+while [ "$elapsed" -lt "$GIVE_UP_SECONDS" ]; do
+    difference=$(( $(offset) - start_offset ))
+    if [ "${difference#-}" -gt "$JUMP_SECONDS" ] && [ -z "$jump_at" ]; then
+        jump_at="$(uptime_seconds)"
+        echo "Clock set (corrected by ${difference#-} s)."
+    fi
+
+    synchronized && break
+
+    if network_up; then
+        [ -n "$online_since" ] || online_since="$elapsed"
+        if [ $((elapsed - online_since)) -ge "$HTTP_AFTER_SECONDS" ] && web_time="$(http_time)"; then
+            difference=$(( web_time - $(date +%s) ))
+            if [ "${difference#-}" -gt 60 ]; then
+                date --set="@$web_time" >/dev/null
+                echo "No time server answered – clock set from a web server: $(date)"
+                [ "${difference#-}" -gt "$JUMP_SECONDS" ] && [ -z "$jump_at" ] && jump_at="$(uptime_seconds)"
+            fi
+            break
+        fi
+    fi
+
+    sleep "$POLL_SECONDS"
+    elapsed=$((elapsed + POLL_SECONDS))
+done
+
+if ! synchronized && [ -z "$jump_at" ]; then
+    echo "Clock not set (no time server and no internet) – keeping $(date)."
+    exit 0
+fi
+
+# Restart only what started before the clock was set (its HTTPS requests failed with the wrong time)
+[ -n "$jump_at" ] || exit 0
+for unit in showplaypi-companion.service showplaypi-ontime.service; do
+    systemctl is-active --quiet "$unit" || continue
+    started_at=$(( $(systemctl show --property=ActiveEnterTimestampMonotonic --value "$unit") / 1000000 ))
+    if [ "$started_at" -lt "$jump_at" ]; then
+        echo "Restarting $unit – it started before the clock was set."
+        systemctl restart "$unit"
+    fi
+done

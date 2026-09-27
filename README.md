@@ -51,7 +51,10 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
   ([OSC reference](docs/OSC.md))
 - **VNC** to see exactly what is on the screen – in every mode
 - Network: DHCP or static IP, device name, time zone (detected automatically from the internet
-  connection), time server
+  connection)
+- **Time server for the network:** other devices (computers, Companion, clocks) can take the time from
+  ShowPlayPI via NTP. Without internet it keeps the best time it knows – at least the time the configuration
+  was last saved on a computer
 - **Self-maintaining:** unique device names, automatic data hygiene (browser caches, logs, temporary files),
   deleted files on the drive are restored
 
@@ -68,6 +71,8 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
   PoE HATs work on both models, **PoE+ is recommended** (a single network cable for power and data)
 - A micro-HDMI to HDMI cable – use the HDMI port **next to the USB-C power socket** (see
   [known issues](#known-issues))
+- Optional for the Pi 5: the **RTC battery** (Raspberry Pi RTC Battery on the `BAT` connector) keeps the clock
+  running while the device is off – the time is right even without internet
 - A network cable if the content comes from the network or the device is controlled remotely
 
 ## Quick start
@@ -170,7 +175,7 @@ ShowPlayPI card it is started from).
 | `[SYSTEM]` | `MODE` | `browser` | Operating mode: `browser`, `video`, `companion` or `ontime` (see [modes](#modes)) |
 | | `HOSTNAME` | `showplaypi` | Device name. The default `showplaypi` becomes `showplaypi-` plus the last six digits of the MAC address, e.g. `showplaypi-e84042` (see [device name](#device-name)); any other name is used as it is |
 | | `TIMEZONE` | `auto` | Time zone; `auto` = detected from the internet connection at every start (the public IP address is sent to a free GeoIP service; offline the last detected one is kept, at first `Europe/Berlin`), or a name such as `Europe/London` |
-| | `NTP_SERVER` | `192.53.103.108` | Time server (PTB, Germany) |
+| | `NTP_SERVER` | `192.53.103.108` | Time server the device takes its time from (PTB, Germany); public time servers and those the router announces are a reserve |
 | | `USB_CONFIG_MODE` | `yes` | Configuration mode while a computer is connected via USB-C: playback pauses, and after unplugging ShowPlayPI restarts with the new settings (`no` = keep playing) |
 | | `BOOT_MESSAGES` | `no` | Show the system messages instead of the startup image while booting (troubleshooting) |
 | `[NETWORK]` | `MODE` | `dhcp` | `dhcp` or `static` |
@@ -202,6 +207,7 @@ ShowPlayPI card it is started from).
 | | `RESOLUTION`, `REFRESH` | `1920x1080`, `60` | Used with `MODE=fixed` |
 | `[VNC]` | `ENABLED`, `PORT` | `yes`, `5900` | Remote view |
 | `[NETWORK_SHARE]` | `ENABLED` | `yes` | Share the `SHOWPLAYPI` drive on the network (user `admin`, password `admin`) |
+| `[TIME_SERVER]` | `ENABLED` | `yes` | Serve the time to the network via NTP (UDP port 123) |
 | `[DISCOVERY]` | `UPNP` | `yes` | Announce the running web interfaces (Companion, Ontime) in the Windows network view |
 | `[OSC]` | `ENABLED` | `yes` | OSC remote control on UDP port 23878 (changes last until the next restart) |
 
@@ -249,7 +255,8 @@ Set `MODE=companion`. Companion runs on the device; set it up in a browser at
 `http://showplaypi-xxxxxx.local:8000` (connections, buttons, emulators). The screen shows Companion's
 emulator chooser – pick an emulator by touch or mouse, or via OSC (`/showplaypi/companion/emulator`).
 USB control surfaces such as the Stream Deck can be plugged into the Pi. Companion's backups are stored in
-`COMPANION/BACKUP` on the drive.
+`COMPANION/BACKUP` on the drive. **All modules are on board:** the first start of the Companion mode installs
+the offline module bundle (800+ devices, about a minute), so connections can be added without internet.
 
 ### Audio
 
@@ -273,6 +280,7 @@ via OSC (`/showplaypi/ontime/view`).
 | **VNC** | any VNC viewer, `showplaypi-xxxxxx.local:5900` | password `admin` |
 | **Companion** (mode `companion`) | `http://showplaypi-xxxxxx.local:8000` | – |
 | **Ontime** (mode `ontime`) | `http://showplaypi-xxxxxx.local:4001` | – |
+| **Time server** | NTP, UDP port 123: enter `showplaypi-xxxxxx.local` or the IP address as time server on the other devices | – |
 | **SSH** | `ssh admin@showplaypi-xxxxxx.local` | user `admin`, password `admin` |
 | **Network share** | `\\showplaypi-xxxxxx.local\SHOWPLAYPI` (Windows), `smb://showplaypi-xxxxxx.local/SHOWPLAYPI` (Mac) | user `admin`, password `admin` |
 
@@ -288,7 +296,7 @@ If the `.local` name does not work on your network, use the IP address shown on 
 
 ShowPlayPI is built for **isolated event networks** and is deliberately easy to use: the default
 passwords are `admin`, and OSC has no authentication. **Do not connect it unchanged to a company network or
-the internet.** VNC, the network share, the UPnP announcement and OSC can each be switched off in
+the internet.** VNC, the network share, the UPnP announcement, the time server and OSC can each be switched off in
 `showplaypi.ini`; further options to lock everything down (own passwords, OSC password, disabling SSH,
 firewall) are planned – see the [roadmap](ROADMAP.md).
 

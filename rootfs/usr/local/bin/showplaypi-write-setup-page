@@ -15,6 +15,8 @@ NETWORK_STATE_FILE="/run/showplaypi/setup-page-network"
 network_state() {
     ip -4 -o addr show scope global 2>/dev/null | awk '{ print $2, $4 }'
     ip -4 route show default 2>/dev/null | awk 'NR == 1 { print $3 }'
+    # The page also shows whether the clock is set
+    timedatectl show --property=NTPSynchronized --value 2>/dev/null
 }
 
 if [[ "${1:-}" == "--network-state" ]]; then
@@ -155,6 +157,21 @@ HOSTNAME_HTML="$(html_escape "$HOSTNAME")"
 CURRENT_IPS_HTML="$(html_escape "$CURRENT_IPS")"
 NETWORK_SUMMARY_HTML="$(html_escape "$NETWORK_SUMMARY")"
 DNS_SUMMARY_HTML="$(html_escape "$DNS_SUMMARY")"
+
+# Clock and time server for the network ([TIME_SERVER] ENABLED, chrony)
+if [ "$(timedatectl show --property=NTPSynchronized --value 2>/dev/null)" = "yes" ]; then
+    TIME_SUMMARY="Synchronised"
+else
+    TIME_SUMMARY="Not synchronised yet (last known time)"
+fi
+case "$(ini_get TIME_SERVER ENABLED | tr '[:upper:]' '[:lower:]')" in
+    no|false|0|off) ;;
+    *)
+        FIRST_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR == 1 { split($4, a, "/"); print a[1] }')"
+        TIME_SUMMARY="$TIME_SUMMARY – time server for the network: ${FIRST_IP:-$HOSTNAME.local} (NTP)"
+        ;;
+esac
+TIME_SUMMARY_HTML="$(html_escape "$TIME_SUMMARY")"
 TARGET_SUMMARY_HTML="$(html_escape "$TARGET_SUMMARY")"
 SSH_DIRECT_HTML="$(html_escape "$SSH_DIRECT")"
 
@@ -176,6 +193,8 @@ MODE_HTML="$(html_escape "$(/usr/local/bin/showplaypi-mode 2>/dev/null || echo b
 
 
 TEMP_OUTPUT="$(mktemp /home/admin/kiosk/.setup.html.XXXXXX)"
+# mktemp creates the file readable only by its owner – the browser must be able to read it
+chmod 644 "$TEMP_OUTPUT"
 
 cat > "$TEMP_OUTPUT" <<EOF
 <!doctype html>
@@ -365,6 +384,9 @@ footer {
 
             <div class="label details-label">Active DNS server</div>
             <div class="value">$DNS_SUMMARY_HTML</div>
+
+            <div class="label details-label">Clock</div>
+            <div class="value">$TIME_SUMMARY_HTML</div>
         </article>
 
         <article class="panel">

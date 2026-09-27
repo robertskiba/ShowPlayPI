@@ -1,0 +1,9 @@
+[Unit]
+Description=ShowPlayPI clock: keep the current time every 10 minutes (also survives a power cut)
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target
