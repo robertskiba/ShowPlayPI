@@ -37,6 +37,8 @@ VIDEO_STATUS_FILE = RUNTIME_DIRECTORY / "video-status.json"
 AUDIO_SOCKET = RUNTIME_DIRECTORY / "audio.sock"
 AUDIO_STATUS_FILE = RUNTIME_DIRECTORY / "audio-status.json"
 AUDIO_PLAYER_FLAG = RUNTIME_DIRECTORY / "audio-player"
+# Load, memory, temperature – written every 5 seconds by showplaypi-monitor
+SYSTEM_STATUS_FILE = RUNTIME_DIRECTORY / "system-status.json"
 BROWSER_MODES = ("browser", "ontime", "companion")
 # Companion mode: Companion runs on the device (showplaypi-companion.service)
 COMPANION_URL = "http://127.0.0.1:8000"
@@ -427,6 +429,22 @@ def send_to_audio(command, arguments):
             raise RuntimeError(f"Audio player is not running: {error}")
 
 
+def reply_system(osc_socket, source, arguments):
+    # /showplaypi/system [port]: the load of the device to the sender (its source port, or the given port)
+    destination = source
+
+    if arguments:
+        destination = (source[0], whole_number(arguments[0], "port", 1, 65535))
+
+    try:
+        status = SYSTEM_STATUS_FILE.read_text(encoding="utf-8")
+        json.loads(status)
+    except (OSError, ValueError) as error:
+        raise RuntimeError(f"No system state available: {error}")
+
+    reply(osc_socket, destination, "/showplaypi/system", status)
+
+
 def reply_audio_state(osc_socket, destination, command):
     # The player writes its state right after the command; give it a moment
     time.sleep(0.2)
@@ -632,6 +650,10 @@ def handle_message(address, arguments, source, mode, osc_socket):
             return
 
         companion_command(address[len("/showplaypi/companion/"):], arguments, source, osc_socket)
+        return
+
+    if address == "/showplaypi/system":
+        reply_system(osc_socket, source, arguments)
         return
 
     if address.startswith("/showplaypi/ontime/"):

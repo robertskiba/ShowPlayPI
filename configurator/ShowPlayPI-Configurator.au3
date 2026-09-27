@@ -270,6 +270,11 @@ GUICtrlSetTip($g_idOntimeView, "A view, optionally with the options of its setti
 GUICtrlCreateLabel("An own target URL on the Browser tab replaces these views. If Companion's or Ontime's own OSC input " & _
     "is enabled, it must not use UDP port 23878 (ShowPlayPI).", 45, 255, 590, 40)
 
+GUICtrlCreateLabel("Memory for Companion: every Companion connection is a program of its own (about 25-35 MB). " & _
+    "A Raspberry Pi with 1 GB is enough for about 5 connections, 2 GB for typical events, 4 GB for large setups. " & _
+    "When the memory runs low, ShowPlayPI logs a warning (OSC: /showplaypi/system).", 45, 305, 590, 60)
+GUICtrlSetColor(-1, 0x9A5B00)
+
 ; -----------------------------------------------------------------------------
 ; Display tab
 ; -----------------------------------------------------------------------------

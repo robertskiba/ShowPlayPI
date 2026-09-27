@@ -16,7 +16,7 @@ Status: browser mode; video, Companion, Ontime and audio as a first version (see
 | Protocol | OSC 1.0 over **UDP** |
 | Target | IP address or device name of the Pi, e.g. `showplaypi-e84042.local` (shown on the setup page) |
 | Port | **23878** (fixed; chosen so that it does not collide with the default ports of common show-control software) |
-| Replies | none – except `/showplaypi/video/list`, `/showplaypi/video/status`, `/showplaypi/audio/list`, `/showplaypi/audio/status` and `/showplaypi/companion/emulators`, which answer to the sender's address and port |
+| Replies | none – except `/showplaypi/system`, `/showplaypi/video/list`, `/showplaypi/video/status`, `/showplaypi/audio/list`, `/showplaypi/audio/status` and `/showplaypi/companion/emulators`, which answer to the sender's address and port |
 | Bundles | currently **not** supported, single messages only |
 | Argument types | `s` (string), `i` (integer), `f` (float), `T`/`F` (boolean) |
 | Times | always in **milliseconds** (fades, durations, positions, timeouts); volumes always in **percent** |
@@ -110,6 +110,29 @@ milliseconds (default: `[VIDEO] FADE`).
 milliseconds for this command; the default comes from `showplaypi.ini` (e.g. `[DISPLAY] BLACKOUT_FADE=500`,
 `0` = hard cut). Today the picture switches immediately.
 
+### `/showplaypi/system [port]`
+Replies to the sender (its source port, or the given `port`) with `/showplaypi/system` and the load of the
+device as JSON – e.g. for a Companion button that shows the memory state. The values are at most five seconds
+old (`showplaypi-monitor`).
+
+```json
+{"cpu": 23, "cores": [30, 18, 25, 19],
+ "ram": {"total": 986, "available": 305, "used": 681, "percent": 69,
+         "swap_total": 985, "swap_used": 516, "swap_percent": 52, "state": "normal"},
+ "temperature": 48.0, "throttled": {"undervoltage": false, "now": false, "since_boot": false},
+ "uptime": 392820, "drives": {"system": {"free": 5107}, "media": {"free": 2640}},
+ "companion_connections": 2}
+```
+
+- CPU load in percent (total and per core, over the last five seconds); RAM, swap and free space in MB;
+  temperature in °C; `throttled` from the firmware (under-voltage, throttling now or since the start);
+  uptime in milliseconds.
+- `ram.state` – `normal`, `warning` (swap at least 80 % used or less than 120 MB available) or `critical`
+  (swap at least 95 % used and less than 80 MB available: the device may stall). A change is also logged,
+  in the Companion mode with advice.
+- `companion_connections` – only in the Companion mode: the number of connections, each a program of its own
+  (about 25–35 MB).
+
 ## Examples
 
 **Bitfocus Companion** ("Generic OSC" module, target IP of the Pi, port 23878):
@@ -181,22 +204,10 @@ module needs no manual "reply to" setting.
 |---|---|---|
 | `/showplaypi/identify` | `[ms]` | shows device name, IP address and version large on the screen for `ms` milliseconds (default `5000`), over whatever is playing – to find out which display is which device |
 | `/showplaypi/status` | `[port]` | replies to the sender (its IP address, the given port or else the source port) with `/showplaypi/status` and the complete state as JSON: the `hello` information plus the state of the active mode and services (e.g. current URL, blackout, page reachable; for video and audio as in `…/status` below) |
-| `/showplaypi/system` | `[port]` | replies to the sender (like `status`) with `/showplaypi/system` and the load of the device as JSON (below) |
+| `/showplaypi/system` | `[port]` | **implemented**, see above |
 | `/showplaypi/reboot` | `"reboot"` | restarts the device (emergency); only with the word `reboot` as argument, so a misconfigured button cannot restart the device by accident |
 
-`/showplaypi/blackout` (above) works in every mode as well.
-
-Reply to `/showplaypi/system`, e.g.:
-
-```json
-{"cpu": 23, "cores": [30, 18, 25, 19], "ram": {"used": 812, "total": 4096, "percent": 20},
- "temperature": 54.2, "throttled": {"undervoltage": false, "now": false, "since_boot": false},
- "uptime": 5423000, "drives": {"system": {"free": 7340}, "media": {"free": 2890}}}
-```
-
-CPU load in percent (total and per core, averaged over the last second), RAM and free space in MB,
-temperature in °C, `throttled` from the firmware (under-voltage, throttling now or since the start), uptime
-in milliseconds.
+`/showplaypi/blackout` and `/showplaypi/system` (above) work in every mode as well.
 
 ### File lists (release 1.2, draft)
 

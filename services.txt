@@ -23,6 +23,8 @@ enable showplaypi-upnp.service
 enable showplaypi-idle.service
 # Operating mode: showplaypi-mode.service writes flags that the units of each mode check
 enable showplaypi-mode.service
+# System monitor: load, memory warning, temperature (OSC /showplaypi/system)
+enable showplaypi-monitor.service
 enable showplaypi-video.service
 # Audio player: an optional extra in any mode, [AUDIO] ENABLED=yes (the unit checks the flag from showplaypi-mode)
 enable showplaypi-audio.service

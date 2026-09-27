@@ -15,6 +15,13 @@ versions follow [Semantic Versioning](https://semver.org/).
   page that is not reachable yet is loaded as soon as it is, and the setup page shows the IP address as soon
   as the device has one.
 
+### Added
+- **Memory warning:** a new system monitor logs a warning when the memory runs low – in the Companion mode with
+  the number of connections and advice (every Companion connection needs about 25–35 MB; a 1 GB Pi is enough
+  for about 5). The configurator shows the RAM recommendation.
+- OSC `/showplaypi/system`: CPU load, memory (with warning state), temperature, under-voltage, uptime and free
+  space as JSON, in every mode.
+
 ## [1.0.0-beta.3] – 2026-09-26
 
 ShowPlayPI becomes a playout device with four modes: besides the web browser it now plays videos and still

@@ -60,7 +60,9 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
 - **Raspberry Pi 5 or Raspberry Pi 4 Model B** (the Pi 5 is the main platform; the Pi 4 is still being tested
   in the beta). For the Companion mode the RAM decides how many connections are possible – every Companion
   connection is a program of its own (about 25–35 MB each): **1 GB** only for small setups (up to about 5
-  connections), **2 GB** for typical events, **4 GB** recommended for large setups.
+  connections), **2 GB** for typical events, **4 GB** recommended for large setups. When the memory runs
+  low, ShowPlayPI logs a warning (`journalctl -u showplaypi-monitor`), and `/showplaypi/system` reports it
+  via OSC.
 - A microSD card, **16 GB or larger**
 - A suitable power supply (Pi 5: 27 W USB-C, Pi 4: 15 W USB-C) – **or Power over Ethernet**: the official
   PoE HATs work on both models, **PoE+ is recommended** (a single network cable for power and data)
@@ -267,7 +269,7 @@ via OSC (`/showplaypi/ontime/view`).
 
 | What | How | Default login |
 |---|---|---|
-| **OSC** | UDP port 23878, commands such as `/showplaypi/browser/url`, `/showplaypi/blackout`, `/showplaypi/video/…` – see [docs/OSC.md](docs/OSC.md) | – |
+| **OSC** | UDP port 23878, commands such as `/showplaypi/browser/url`, `/showplaypi/blackout`, `/showplaypi/video/…`, `/showplaypi/system` (load, memory, temperature) – see [docs/OSC.md](docs/OSC.md) | – |
 | **VNC** | any VNC viewer, `showplaypi-xxxxxx.local:5900` | password `admin` |
 | **Companion** (mode `companion`) | `http://showplaypi-xxxxxx.local:8000` | – |
 | **Ontime** (mode `ontime`) | `http://showplaypi-xxxxxx.local:4001` | – |

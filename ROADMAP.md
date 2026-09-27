@@ -80,11 +80,12 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
       cable or DHCP server no longer up to a minute later; a web page is loaded by the watchdog as soon as it is
       reachable, the setup page is updated when the network comes up. Still to test without a cable on the
       Pi 4 (the Pi 5 test device runs on PoE)
-- [ ] **Companion out of memory:** measured on the 1 GB Pi 5 – every connection is a Node process of its own
-      (about 25–35 MB); with 30 connections the device stalled and was reset by the watchdog. Before 1.0.0: a
-      warning when the memory runs low (log, OSC status), the RAM recommendation in README and configurator
-      (1 GB up to about 5 connections, 2 GB typical events, 4 GB large setups); measure 2/4 GB and real
-      modules (ATEM, vMix …)
+- [x] **Companion out of memory** (2026-09-27): measured on the 1 GB Pi 5 – every connection is a Node process
+      of its own (about 25–35 MB); with 30 connections the device stalled and was reset by the watchdog.
+      `showplaypi-monitor` now logs a warning when the memory runs low (with the number of Companion
+      connections and advice), `/showplaypi/system` reports it via OSC; the RAM recommendation is in README
+      and configurator (1 GB up to about 5 connections, 2 GB typical events, 4 GB large setups)
+- [ ] Measure Companion on 2 and 4 GB and with real modules (ATEM, vMix …) to confirm the recommendation
 - [ ] Power only via USB-C from a PC: the Pi 4 works (USB configuration mode); the Pi 5 does not start at all
       from a PC USB port (red LED – the bootloader never runs, no software can fix that) – documented
 - [ ] **Power over Ethernet:** official PoE HATs on Pi 4B and Pi 5 (PoE+ recommended) – the Pi 5 test device
@@ -228,7 +229,7 @@ Pi 5 – with and without a display, with and without network.
 **Shared OSC service**
 - [ ] Feedback subscription with handshake (`/showplaypi/subscribe`, `/showplaypi/hello`),
       `/showplaypi/status`, `/showplaypi/identify` (device name and IP on the screen, to tell displays apart),
-      `/showplaypi/system` (CPU, RAM, temperature, under-voltage, free space), `/showplaypi/reboot "reboot"`
+      `/showplaypi/system` (CPU, RAM, temperature, under-voltage, free space – done 2026-09-27), `/showplaypi/reboot "reboot"`
       (emergency restart); file lists pushed as JSON on every change (draft in `docs/OSC.md`)
 - [ ] Feedbacks of the video player, the audio player and the Companion mode (state, elapsed and remaining
       time, volumes, emulator list)

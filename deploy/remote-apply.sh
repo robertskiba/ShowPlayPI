@@ -93,6 +93,7 @@ changed 'showplaypi-(browser|display|current-url|kiosk)|\.xinitrc|/home/admin/ki
 changed 'showplaypi-vnc'                  && restart+=(showplaypi-vnc.service)
 changed 'showplaypi-idle'                 && restart+=(showplaypi-idle.service)
 changed 'showplaypi-mode'                 && restart+=(showplaypi-mode.service)
+changed 'showplaypi-monitor'              && restart+=(showplaypi-monitor.service)
 changed 'showplaypi-video|showplaypi_mpv' && restart+=(showplaypi-video.service)
 changed 'showplaypi-audio|showplaypi_mpv' && restart+=(showplaypi-audio.service)
 changed 'showplaypi-companion'            && restart+=(showplaypi-companion.service)

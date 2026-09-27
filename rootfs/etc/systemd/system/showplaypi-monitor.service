@@ -1,0 +1,16 @@
+[Unit]
+Description=ShowPlayPI system monitor (load, memory warning, temperature)
+After=showplaypi-mode.service
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+# vcgencmd (under-voltage and throttling from the firmware)
+SupplementaryGroups=video
+ExecStart=/usr/local/bin/showplaypi-monitor
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

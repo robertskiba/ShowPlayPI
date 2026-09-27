@@ -1,0 +1,208 @@
+#!/usr/bin/python3
+"""ShowPlayPI system monitor: load, memory, temperature and free space – in every mode.
+
+Every 5 seconds it writes /run/showplaypi/system-status.json (sent via OSC on /showplaypi/system) and watches
+the memory: when it runs low it logs a warning – in the Companion mode with the number of Companion
+connections, since every connection is a program of its own (about 25–35 MB). Nothing is stopped
+automatically; the warning is only a warning, a running show is never interrupted.
+
+Memory state: normal, warning (swap at least 80 % used or less than 120 MB available) or critical (swap at
+least 95 % used and less than 80 MB available – measured on a 1 GB Pi 5 with 30 Companion connections, the
+device stalled). Returns to normal only with some margin, so the log does not flap.
+"""
+
+import json
+import logging
+import os
+import subprocess
+import time
+from pathlib import Path
+
+RUNTIME_DIR = Path("/run/showplaypi")
+STATUS_FILE = RUNTIME_DIR / "system-status.json"
+MODE_FILE = RUNTIME_DIR / "mode"
+MEDIA = Path("/media/showplaypi")
+COMPANION_CGROUP = Path("/sys/fs/cgroup/system.slice/showplaypi-companion.service/cgroup.procs")
+
+INTERVAL_SECONDS = 5
+THROTTLED_SECONDS = 30
+REMINDER_SECONDS = 600
+
+WARNING_SWAP_PERCENT = 80
+WARNING_AVAILABLE_MB = 120
+CRITICAL_SWAP_PERCENT = 95
+CRITICAL_AVAILABLE_MB = 80
+# Back to normal only below/above these values
+NORMAL_SWAP_PERCENT = 70
+NORMAL_AVAILABLE_MB = 160
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger("showplaypi-monitor")
+
+
+def meminfo():
+    values = {}
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        key, value = line.split(":", 1)
+        values[key] = int(value.split()[0]) // 1024  # MB
+    return values
+
+
+def cpu_times():
+    """[(busy, total), …] for all CPUs together and every core."""
+    result = []
+    for line in Path("/proc/stat").read_text().splitlines():
+        if not line.startswith("cpu"):
+            break
+        fields = [int(value) for value in line.split()[1:]]
+        idle = fields[3] + fields[4]  # idle + iowait
+        result.append((sum(fields) - idle, sum(fields)))
+    return result
+
+
+def cpu_percent(before, after):
+    percents = []
+    for (busy_before, total_before), (busy_after, total_after) in zip(before, after):
+        total = total_after - total_before
+        percents.append(round(100 * (busy_after - busy_before) / total) if total > 0 else 0)
+    return percents
+
+
+def temperature():
+    try:
+        return round(int(Path("/sys/class/thermal/thermal_zone0/temp").read_text()) / 1000, 1)
+    except (OSError, ValueError):
+        return None
+
+
+def throttled():
+    try:
+        output = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True,
+                                timeout=5).stdout
+        value = int(output.strip().split("=")[1], 16)
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+    return {"undervoltage": bool(value & 0x1), "now": bool(value & 0x4), "since_boot": bool(value & 0x50000)}
+
+
+def free_mb(path):
+    try:
+        stat = os.statvfs(path)
+    except OSError:
+        return None
+    return stat.f_bavail * stat.f_frsize // (1024 * 1024)
+
+
+def companion_connections():
+    """Companion runs every connection as a process of its own, named after the connection."""
+    try:
+        pids = COMPANION_CGROUP.read_text().split()
+    except OSError:
+        return None
+    count = 0
+    for pid in pids:
+        try:
+            command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+        except OSError:
+            continue
+        if "/opt/companion" in command or "main.js" in command or not command.strip():
+            continue
+        count += 1
+    return count
+
+
+def memory_state(previous, available, swap_percent):
+    if swap_percent >= CRITICAL_SWAP_PERCENT and available < CRITICAL_AVAILABLE_MB:
+        return "critical"
+    if swap_percent >= WARNING_SWAP_PERCENT or available < WARNING_AVAILABLE_MB:
+        return "warning"
+    if previous != "normal" and (swap_percent > NORMAL_SWAP_PERCENT or available < NORMAL_AVAILABLE_MB):
+        return "warning"
+    return "normal"
+
+
+def describe(state, memory, mode, connections):
+    text = (f"{memory['available']} MB available, swap {memory['swap_percent']} % used "
+            f"({memory['total']} MB RAM)")
+    if mode == "companion" and connections is not None:
+        text += f", {connections} Companion connection(s)"
+    if state == "normal":
+        return f"Memory OK again: {text}."
+    advice = ""
+    if mode == "companion":
+        advice = (" Every Companion connection needs about 25–35 MB: use fewer connections or a Raspberry Pi "
+                  "with more RAM (2 GB for typical events, 4 GB for large setups).")
+    if state == "critical":
+        return f"Memory used up – the device may stall: {text}.{advice}"
+    return f"Memory is running low: {text}.{advice}"
+
+
+def main():
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    state = "normal"
+    last_reminder = 0.0
+    throttle_state = throttled()
+    next_throttle = time.monotonic() + THROTTLED_SECONDS
+    cpu_before = cpu_times()
+
+    while True:
+        time.sleep(INTERVAL_SECONDS)
+        cpu_after = cpu_times()
+        cpu = cpu_percent(cpu_before, cpu_after)
+        cpu_before = cpu_after
+
+        info = meminfo()
+        swap_total = info.get("SwapTotal", 0)
+        swap_used = swap_total - info.get("SwapFree", 0)
+        memory = {
+            "total": info["MemTotal"],
+            "available": info["MemAvailable"],
+            "used": info["MemTotal"] - info["MemAvailable"],
+            "percent": round(100 * (info["MemTotal"] - info["MemAvailable"]) / info["MemTotal"]),
+            "swap_total": swap_total,
+            "swap_used": swap_used,
+            "swap_percent": round(100 * swap_used / swap_total) if swap_total else 0,
+        }
+
+        if time.monotonic() >= next_throttle:
+            throttle_state = throttled()
+            next_throttle = time.monotonic() + THROTTLED_SECONDS
+
+        try:
+            mode = MODE_FILE.read_text().strip()
+        except OSError:
+            mode = None
+        connections = companion_connections() if mode == "companion" else None
+
+        new_state = memory_state(state, memory["available"], memory["swap_percent"])
+        now = time.monotonic()
+        if new_state != state:
+            message = describe(new_state, memory, mode, connections)
+            (log.info if new_state == "normal" else log.warning)(message)
+            state = new_state
+            last_reminder = now
+        elif state != "normal" and now - last_reminder >= REMINDER_SECONDS:
+            log.warning(describe(state, memory, mode, connections))
+            last_reminder = now
+
+        memory["state"] = state
+        status = {
+            "cpu": cpu[0] if cpu else None,
+            "cores": cpu[1:],
+            "ram": memory,
+            "temperature": temperature(),
+            "throttled": throttle_state,
+            "uptime": int(float(Path("/proc/uptime").read_text().split()[0]) * 1000),
+            "drives": {"system": {"free": free_mb("/")},
+                       "media": {"free": free_mb(MEDIA) if os.path.ismount(MEDIA) else None}},
+        }
+        if connections is not None:
+            status["companion_connections"] = connections
+
+        temporary = STATUS_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps(status), encoding="utf-8")
+        temporary.replace(STATUS_FILE)
+
+
+if __name__ == "__main__":
+    main()
