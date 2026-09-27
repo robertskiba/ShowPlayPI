@@ -171,6 +171,8 @@ case "${NETWORK_SHARE,,}" in
         ;;
 esac
 VERSION_HTML="$(html_escape "$SHOWPLAYPI_VERSION")"
+RELEASE_DATE_HTML="$(html_escape "$SHOWPLAYPI_RELEASE_DATE")"
+MODE_HTML="$(html_escape "$(/usr/local/bin/showplaypi-mode 2>/dev/null || echo browser)")"
 
 
 TEMP_OUTPUT="$(mktemp /home/admin/kiosk/.setup.html.XXXXXX)"
@@ -331,6 +333,11 @@ footer {
 .details-label {
     margin-top: 16px;
 }
+
+.release-date {
+    color: var(--muted);
+    font-size: 0.8em;
+}
 </style>
 </head>
 <body>
@@ -345,6 +352,11 @@ footer {
             <div class="label">Device name</div>
             <div class="value">$HOSTNAME_HTML.local</div>
 
+            <div class="label details-label">ShowPlayPI version</div>
+            <div class="value">$VERSION_HTML <span class="release-date">($RELEASE_DATE_HTML)</span></div>
+
+            <div class="label details-label">Operating mode</div>
+            <div class="value">$MODE_HTML</div>
         </article>
 
         <article class="panel">

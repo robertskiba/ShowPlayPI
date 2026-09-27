@@ -21,6 +21,7 @@ versions follow [Semantic Versioning](https://semver.org/).
   for about 5). The configurator shows the RAM recommendation.
 - OSC `/showplaypi/system`: CPU load, memory (with warning state), temperature, under-voltage, uptime and free
   space as JSON, in every mode.
+- The setup page shows the ShowPlayPI version with its release date and the operating mode.
 
 ## [1.0.0-beta.3] – 2026-09-26
 

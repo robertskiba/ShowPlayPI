@@ -90,7 +90,7 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
       from a PC USB port (red LED – the bootloader never runs, no software can fix that) – documented
 - [ ] **Power over Ethernet:** official PoE HATs on Pi 4B and Pi 5 (PoE+ recommended) – the Pi 5 test device
       runs on PoE; verify stable operation under load and the HAT fan control
-- [ ] Version number visible on the setup page (INI, configurator and SSH banner show it)
+- [x] Version number visible on the setup page (2026-09-27: with release date and operating mode in the first panel; INI, configurator and SSH banner show it as well)
 - [x] **Published:** the repository is public, `1.0.0-beta.3` is released on GitHub with image, checksum and
       configurator EXE (2026-09-26)
 - [ ] Imager list at its permanent address `https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json`
