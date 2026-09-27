@@ -7,6 +7,20 @@ RELEASE_FILE="/etc/showplaypi-release"
 
 SHOWPLAYPI_VERSION="unknown"
 SHOWPLAYPI_RELEASE_DATE="unknown"
+# The network state this page was written with: showplaypi-web-watchdog writes the page again when it changes
+# (the kiosk starts without waiting for the network)
+NETWORK_STATE_FILE="/run/showplaypi/setup-page-network"
+
+# IPv4 addresses and default gateway – what the page shows about the network
+network_state() {
+    ip -4 -o addr show scope global 2>/dev/null | awk '{ print $2, $4 }'
+    ip -4 route show default 2>/dev/null | awk 'NR == 1 { print $3 }'
+}
+
+if [[ "${1:-}" == "--network-state" ]]; then
+    network_state
+    exit 0
+fi
 
 if [[ -r "$RELEASE_FILE" ]]; then
     # shellcheck disable=SC1090
@@ -386,3 +400,4 @@ footer {
 EOF
 
 mv "$TEMP_OUTPUT" "$OUTPUT"
+network_state > "$NETWORK_STATE_FILE" 2>/dev/null || true

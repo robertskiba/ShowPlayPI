@@ -75,8 +75,11 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
       VNC, watchdog
 - [ ] **Pi 4B:** USB configuration mode, headphone jack, video player (H.264 hardware decoding), Companion and
       Ontime – so far only tested on the Pi 5
-- [ ] **Booting without network** does not delay the picture (the X session waits for
-      `network-online.target`, possibly up to about a minute)
+- [x] **Booting without network** does not delay the picture (2026-09-27): the X session no longer waits for
+      `network-online.target` – on the Pi 5 the picture comes about 4.5 s earlier with network, and without a
+      cable or DHCP server no longer up to a minute later; a web page is loaded by the watchdog as soon as it is
+      reachable, the setup page is updated when the network comes up. Still to test without a cable on the
+      Pi 4 (the Pi 5 test device runs on PoE)
 - [ ] **Companion out of memory:** measured on the 1 GB Pi 5 – every connection is a Node process of its own
       (about 25–35 MB); with 30 connections the device stalled and was reset by the watchdog. Before 1.0.0: a
       warning when the memory runs low (log, OSC status), the RAM recommendation in README and configurator

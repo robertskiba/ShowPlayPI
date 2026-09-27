@@ -1,7 +1,8 @@
 [Unit]
 Description=ShowPlayPI Kiosk
-Wants=network-online.target
-After=network-online.target systemd-user-sessions.service
+# Does not wait for the network: the picture appears right away in every mode, also without a network cable
+# or DHCP server. A web page that is not reachable yet is loaded by showplaypi-web-watchdog as soon as it is.
+After=systemd-user-sessions.service
 Conflicts=getty@tty1.service
 
 # X session: in every mode with a picture – browser, video, ontime, companion (see showplaypi-mode)

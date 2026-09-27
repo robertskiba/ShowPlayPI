@@ -10,6 +10,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Companion and Ontime always use the device's time zone: they start only after the time zone from
   `showplaypi.ini` is set, and both are restarted once when `TIMEZONE=auto` detects a different time zone
   after the start (before, Companion kept the previous time zone until the next restart).
+- The picture no longer waits for the network: without a network cable or DHCP server it appeared up to about a
+  minute late; now it comes right after the start in every mode (with network about 4.5 s earlier too). A web
+  page that is not reachable yet is loaded as soon as it is, and the setup page shows the IP address as soon
+  as the device has one.
 
 ## [1.0.0-beta.3] – 2026-09-26
 

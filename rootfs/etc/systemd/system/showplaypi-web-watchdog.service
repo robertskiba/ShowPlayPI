@@ -1,7 +1,7 @@
 [Unit]
 Description=ShowPlayPI Website Watchdog
-After=network-online.target
-Wants=network-online.target
+# Starts together with the kiosk, without waiting for the network: it loads the page as soon as it is reachable
+# and refreshes the setup page when the network comes up
 
 # Only in modes with the kiosk browser: browser, ontime, companion (see showplaypi-mode)
 After=showplaypi-mode.service

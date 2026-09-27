@@ -77,11 +77,24 @@ reload_browser() {
     log_message "Browser reload triggered."
 }
 
+SETUP_PAGE_URL="file:///home/admin/kiosk/setup.html"
+# Network state the setup page was written with (written by showplaypi-write-setup-page)
+SETUP_PAGE_NETWORK="/run/showplaypi/setup-page-network"
+
 previous_state="offline"
 last_reload=0
 
 while true; do
     URL="$(/usr/local/bin/showplaypi-current-url)"
+
+    # The kiosk starts without waiting for the network: when the network comes up later (or the address
+    # changes), the setup page is written again, so it shows the current IP address
+    if [ "$URL" = "$SETUP_PAGE_URL" ] &&
+       [ "$(/usr/local/bin/showplaypi-write-setup-page --network-state)" != "$(cat "$SETUP_PAGE_NETWORK" 2>/dev/null)" ] &&
+       /usr/local/bin/showplaypi-write-setup-page; then
+        log_message "Network changed – setup page updated."
+        reload_browser
+    fi
     WATCHDOG_ENABLED="$(ini_get BROWSER WATCHDOG_ENABLED)"
     IGNORE_CERTIFICATES="$(ini_get BROWSER IGNORE_CERTIFICATE_ERRORS)"
     RELOAD_INTERVAL="$(ini_get BROWSER RELOAD_INTERVAL)"

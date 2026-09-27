@@ -298,12 +298,11 @@ address is sent to it); set a fixed time zone to avoid this.
 In this beta:
 
 - Only the HDMI port **next to the USB-C socket** is fully supported; both outputs with the same picture
-  are planned for 1.0.
+  are planned for 1.1.
 - The video, Companion and Ontime modes and the audio player are first versions: crossfades between videos
   fade through black for now, and everything is tested on the Pi 5 so far, not yet on the Pi 4.
 - Companion on a 1 GB Pi: with about 15 connections the memory is nearly used up, with 30 connections the
   device stalls. Use a Pi with 2 or 4 GB for larger Companion setups.
-- Without a network connection the picture may take up to about a minute longer to appear.
 - Configuration via USB-C depends on the power the computer's USB port delivers; the Pi 5 needs a USB-C
   or USB 3 port.
 
