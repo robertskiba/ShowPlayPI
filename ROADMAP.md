@@ -87,9 +87,8 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
 - [ ] **Power over Ethernet:** official PoE HATs on Pi 4B and Pi 5 (PoE+ recommended) – the Pi 5 test device
       runs on PoE; verify stable operation under load and the HAT fan control
 - [ ] Version number visible on the setup page (INI, configurator and SSH banner show it)
-- [ ] **Publish:** delete and re-create the GitHub repository before making it public (so no commits of the
-      old history remain reachable), push the clean history, release on GitHub with image, checksum and
-      configurator EXE
+- [x] **Published:** the repository is public, `1.0.0-beta.3` is released on GitHub with image, checksum and
+      configurator EXE (2026-09-26)
 - [ ] Imager list at its permanent address `https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json`
       (`rpi-imager.json` in the main folder, updated by every release build – done): test it with
       `rpi-imager --repo <address>` once the repository is public, then apply for the official Imager list
@@ -319,8 +318,21 @@ Pi 5 – with and without a display, with and without network.
       Companion module does it automatically) and optional IP allow list; this also protects
       `/showplaypi/reboot`. Documented honestly: OSC is unencrypted – protects against casual takeover, not
       against sniffing.
-- [ ] Own passwords for login, VNC and the network share; passwords entered in the INI are applied on boot and
-      then removed from the file
+- [ ] **One own password for everything, set in the configuration** (`[SECURITY] PASSWORD=`, also a masked
+      field in the configurator):
+  - At the next start it is applied to every place that uses a password: login/SSH and `sudo` of the user
+    `admin`, VNC, the network share (Samba), Companion's admin interface, the web interface and – if switched
+    on – the OSC password. Later optionally separate passwords per interface.
+  - Right after applying it, the plain password is replaced in **all three copies** of `showplaypi.ini` (boot
+    partition, drive `SHOWPLAYPI`, active configuration) by a hash (`PASSWORD=$6$…`, SHA-512 crypt). A value
+    that is already a hash is left alone, so the password is applied only once; the configurator shows
+    "password set" and only writes a new plain password when it is changed.
+  - A hash rather than removing the line: it records that an own password is active and lets the
+    configurator show it; VNC and Samba need their own formats, which are written directly to their
+    configuration and never to the INI.
+  - Empty or deleted: back to the delivery state `admin`. Deleting `showplaypi.ini` also restores `admin`
+    (physical access to the card means full control anyway) – documented clearly.
+  - Never logged, never sent via OSC or in the status; the setup page only shows whether a password is set.
 - [ ] SSH can be disabled or restricted to keys; `sudo` with password; USB configuration drive can be
       disabled; firewall (nftables) with only the needed ports
 
@@ -473,6 +485,7 @@ Stream Deck and other USB control surfaces plugged into the Pi work with a **Com
 - **Companion log files on the drive** (2026-09-26) – Companion writes no log files of its own; its log stays
   in the system journal.
 - **Multiview** (several web pages in a grid) – not needed, too complex.
+- **Synchronised playback across several devices and video walls** (2026-09-26) – never needed.
 - **DHCP/DNS server** – remains the job of a router.
 - **Network monitor** – the device is the wrong place for it.
 - **Art-Net/sACN → DMX node** – out of scope.
