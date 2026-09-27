@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/).
   minute late; now it comes right after the start in every mode (with network about 4.5 s earlier too). A web
   page that is not reachable yet is loaded as soon as it is, and the setup page shows the IP address as soon
   as the device has one.
+- The `README.txt` on the boot partition was still written for the browser alone: it now describes all four
+  modes, the audio player and every section of `showplaypi.ini` with its default.
 
 ### Added
 - **Memory warning:** a new system monitor logs a warning when the memory runs low – in the Companion mode with

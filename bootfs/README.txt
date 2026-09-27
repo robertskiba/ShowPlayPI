@@ -3,45 +3,69 @@ ShowPlayPI
 Configuration Guide
 ===============================================================================
 
-ShowPlayPI opens a configured website automatically in fullscreen kiosk mode.
+ShowPlayPI turns a Raspberry Pi 5 or 4 into a playout device for events. It
+works in one of four modes:
 
-Configuration is stored in:
+    browser     full-screen web page (kiosk)
+    video       videos and still images in an endless loop
+    companion   Bitfocus Companion runs on the device
+    ontime      the Ontime timer runs on the device
+
+An audio player for background music and jingles can be switched on in
+every mode.
+
+All settings are in one file:
 
     showplaypi.ini
 
-Edit showplaypi.ini with a plain-text editor, save the file and safely eject the
-SD card before inserting it into ShowPlayPI.
-
-Changes are applied after restarting ShowPlayPI.
+Changes are applied the next time ShowPlayPI starts.
 
 On the first start ShowPlayPI creates a second drive, SHOWPLAYPI, in the free
-space of the SD card. It holds the same showplaypi.ini, the Windows configurator
-and folders for your own files (HTML, VIDEO, AUDIO, PRESETS), and it is also
-reachable over USB-C and over the network. Edit either copy of showplaypi.ini:
-the changed one is applied at the next start and the other one is updated.
+space of the SD card. It holds the same showplaypi.ini, the Windows
+configurator and folders for your own files (HTML, VIDEO, AUDIO, PRESETS). It
+is reachable over USB-C, over the network and with a card reader. Edit either
+copy of showplaypi.ini: the changed one is applied at the next start and the
+other one is updated.
 
 To use the card for something else, start Clear-SD-Card.cmd on this drive
 (Windows). After a confirmation it removes all ShowPlayPI partitions and
 leaves an empty card with one partition SDCARD. It works only on the
 ShowPlayPI card it is started from.
 
+Full documentation:  https://github.com/robertskiba/ShowPlayPI
+Support:             https://konftools.com  -  support@konftools.com
+
 
 ===============================================================================
 Quick Start
 ===============================================================================
 
-1. Power off ShowPlayPI.
-2. Remove the SD card.
-3. Insert the SD card into a Windows, macOS or Linux computer.
-4. Open the bootfs drive.
-5. Open showplaypi.ini with a plain-text editor.
-6. Enter the desired address under [BROWSER]:
+With the configurator (Windows, recommended):
 
+1. Connect the computer to the USB-C port of ShowPlayPI (on a Pi 5 use a
+   USB-C or USB 3 port of the computer).
+2. Open the drive SHOWPLAYPI and start ShowPlayPI-Configurator.exe.
+3. Choose the mode and the settings, then save.
+4. Unplug the cable. ShowPlayPI restarts with the new settings.
+
+With a text editor (any computer):
+
+1. Power off ShowPlayPI and remove the SD card.
+2. Insert the SD card into a computer and open the drive bootfs or
+   SHOWPLAYPI.
+3. Open showplaypi.ini with a plain-text editor, e.g. set a web page:
+
+       [SYSTEM]
+       MODE=browser
+
+       [BROWSER]
        URL=http://192.168.1.100
 
-7. Save the file.
-8. Safely eject the SD card.
-9. Insert the card into ShowPlayPI and power it on.
+4. Save the file, safely eject the SD card, insert it into ShowPlayPI and
+   power it on.
+
+Without a configured web page, the browser mode shows the setup page with
+the device name and IP address.
 
 
 ===============================================================================
@@ -49,6 +73,22 @@ System Settings
 ===============================================================================
 
 [SYSTEM]
+
+MODE=browser
+
+    browser     full-screen web page (section [BROWSER])
+    video       videos and still images from the folder VIDEO on the drive
+                SHOWPLAYPI (section [VIDEO])
+    companion   Bitfocus Companion runs on the device; the screen shows its
+                emulator chooser. Set up Companion in a browser at
+                http://showplaypi-xxxxxx.local:8000
+    ontime      Ontime runs on the device; the screen shows its timer
+                (section [ONTIME]). Editor:
+                http://showplaypi-xxxxxx.local:4001
+
+    showplaypi-xxxxxx is the device name (see HOSTNAME). The mode is changed
+    only here, never via OSC.
+
 
 HOSTNAME=showplaypi
 
@@ -64,11 +104,13 @@ HOSTNAME=showplaypi
     shown on the setup page. Any other name is used as it is.
 
 
-TIMEZONE=Europe/Berlin
+TIMEZONE=auto
 
-    Linux timezone name.
+    auto = detected from the internet connection at every start (the public
+    IP address is sent to a free service); without internet the last
+    detected time zone is kept, at first Europe/Berlin.
 
-    Examples:
+    Or a time zone name, which is always used as it is, for example:
 
         Europe/Berlin
         Europe/London
@@ -111,10 +153,11 @@ BOOT_MESSAGES=no
 
 
 ===============================================================================
-DHCP Network Configuration
+Network Settings
 ===============================================================================
 
 [NETWORK]
+
 MODE=dhcp
 IP=
 NETMASK=255.255.255.0
@@ -122,56 +165,25 @@ GATEWAY=
 DNS1=
 DNS2=8.8.8.8
 
-DHCP obtains the IP address, subnet mask, gateway and primary DNS server
-automatically.
+MODE=dhcp obtains the IP address, subnet mask, gateway and DNS server
+automatically. DNS1 and DNS2 are added to the DNS servers supplied by DHCP
+(default DNS2: 8.8.8.8, Google Public DNS).
 
-DNS1 and DNS2 may contain additional DNS servers. They are added to the DNS
-servers supplied by DHCP.
+Static address, example:
 
-The default additional DNS server is Google Public DNS:
+    [NETWORK]
+    MODE=static
+    IP=192.168.1.100
+    NETMASK=255.255.255.0
+    GATEWAY=192.168.1.1
+    DNS1=192.168.1.1
+    DNS2=8.8.8.8
 
-    8.8.8.8
+GATEWAY and DNS1 may remain empty in an isolated local network.
 
-
-===============================================================================
-Static Network Configuration
-===============================================================================
-
-Example:
-
-[NETWORK]
-MODE=static
-IP=192.168.1.100
-NETMASK=255.255.255.0
-GATEWAY=192.168.1.1
-DNS1=192.168.1.1
-DNS2=8.8.8.8
-
-IP
-
-    Static IPv4 address assigned to ShowPlayPI.
-
-NETMASK
-
-    Dotted-decimal IPv4 subnet mask.
-
-GATEWAY
-
-    Default gateway. This may remain empty in an isolated local network.
-
-DNS1
-
-    Primary DNS server. This may remain empty when DNS is not required.
-
-DNS2
-
-    Secondary DNS server. This may remain empty.
-
-Invalid network values are rejected. The previously prepared NetworkManager
-profile remains unchanged.
-
-A syntactically valid but incorrect static address can make ShowPlayPI
-unreachable. In that case, correct showplaypi.ini directly on the SD card.
+Invalid network values are rejected. A valid but wrong static address can
+make ShowPlayPI unreachable - then correct showplaypi.ini on the SD card or
+set MODE=dhcp.
 
 
 ===============================================================================
@@ -180,130 +192,141 @@ Browser Settings
 
 [BROWSER]
 
-URL=http://192.168.1.100
+URL=
 
-    Website opened automatically in fullscreen kiosk mode.
-
-    Supported address types:
+    Web page shown in full screen. Supported address types:
 
         http://
         https://
-        file://
+        file://     (own pages on the drive SHOWPLAYPI, e.g.
+                     file:///media/showplaypi/HTML/index.html)
 
-    Addresses may contain umlauts and other special characters, for example
-    http://müller.de/über – ShowPlayPI converts them automatically.
+    Empty = the default page: the setup page in browser mode, the emulator
+    chooser in companion mode, the Ontime view in ontime mode. An own URL
+    replaces the Companion and Ontime views.
+
+    Addresses may contain special characters such as umlauts - ShowPlayPI
+    converts them automatically.
 
 
 IGNORE_CERTIFICATE_ERRORS=yes
 
-    Available values:
-
-        yes
-        no
-
-    Use yes for local websites with self-signed, expired or otherwise invalid
-    HTTPS certificates.
+    yes = also show local web pages with self-signed, expired or otherwise
+          invalid HTTPS certificates
 
 
 WATCHDOG_ENABLED=yes
-
-    Available values:
-
-        yes
-        no
-
-    Enables monitoring of the configured website.
-
-
 WATCHDOG_INTERVAL=5
 
-    Number of seconds between availability checks.
-
-    Valid range:
-
-        2 to 300 seconds
+    The watchdog checks the web page every WATCHDOG_INTERVAL seconds (2 to
+    300). If the page was not reachable, it is reloaded as soon as it is
+    reachable again. Local file:// pages are not checked.
 
 
 RELOAD_INTERVAL=0
 
-    Periodically reloads the website.
+    Reloads the page every this number of seconds (e.g. 60, 300, 3600).
+    0 = never. Dynamic pages and web apps normally use 0.
 
-    Use 0 to disable periodic reloads.
-
-    Examples:
-
-        60      reload every minute
-        300     reload every five minutes
-        3600    reload every hour
-
-    Dynamic websites and WebSocket applications normally use:
-
-        RELOAD_INTERVAL=0
-
-
-===============================================================================
-Idle Timeout (Kiosk Mode)
-===============================================================================
-
-[BROWSER]
 
 IDLE_TIMEOUT=0
 IDLE_ACTION=home
 IDLE_CLEAR_SESSION=no
 
+    For touch kiosks. IDLE_TIMEOUT: return to the start page after this
+    number of seconds without touch, mouse or keyboard input (0 = off,
+    typical 60 to 300).
 
-IDLE_TIMEOUT=120
+    IDLE_ACTION:
 
-    Returns to the start page after this number of seconds without touch,
-    mouse or keyboard input. Use 0 to disable.
+        home      open the start page again if the visitor has left it
+        reload    always reload the start page after it was used (also
+                  resets web apps whose address does not change)
 
-    Typical values for touch kiosks: 60 to 300 seconds.
-
-    Screens without touch, mouse or keyboard are never reset.
-
-
-IDLE_ACTION=home
-
-    home      Open the start page again if the visitor has left it.
-
-    reload    Always reload the start page after it was used. This also
-              resets web applications whose address does not change.
-
-
-IDLE_CLEAR_SESSION=yes
-
-    Clears cookies, form data and logins when resetting, so the next visitor
-    does not see the data of the previous one. Recommended for public kiosks.
-
-
-A page shown via OSC (/showplaypi/browser/url) is the start page until the next
-restart. The idle timeout can also be changed via OSC (/showplaypi/browser/idle)
-until the next restart.
+    IDLE_CLEAR_SESSION=yes clears cookies, form data and logins when
+    resetting, so the next visitor does not see the data of the previous
+    one. Recommended for public kiosks.
 
 
 ===============================================================================
-Website Watchdog
+Video Settings (MODE=video)
 ===============================================================================
 
-The website watchdog checks the configured HTTP or HTTPS address.
+Put videos (MP4, MOV, MKV, WebM ...) and still images (JPG, PNG, WebP) into
+the folder VIDEO on the drive SHOWPLAYPI. They play in alphabetical order in
+an endless loop, e.g. 010_Intro.mp4, 020_Sponsors.jpg, 030_Trailer.mp4.
+Subfolders of VIDEO are further playlists (selectable via OSC).
 
-If the website becomes unavailable, ShowPlayPI continues checking it at the
-configured WATCHDOG_INTERVAL.
+Best video format: H.265/HEVC. On the Raspberry Pi 5, H.264 videos should not
+exceed 1080p with 30 frames per second.
 
-As soon as the website becomes available again, Chromium reloads the page
-automatically.
+[VIDEO]
 
-The watchdog follows normal HTTP redirects.
+AUTOSTART=yes          yes = play after the start, no = black until an OSC
+                       play command arrives
+PLAYLIST=VIDEO         VIDEO or the name of a subfolder
+TRANSITION=crossfade   crossfade or black (crossfades fade through black
+                       for now)
+FADE=1000              fade time in milliseconds, 0 = hard cut
+STILL_DURATION=10      display time of still images in seconds; a time in
+                       the file name wins: "020_Sponsors [15sec].jpg"
+STILL_FIT=fit          fit = whole image with black bars,
+                       fill = screen filled, edges cut off
+VOLUME=100             volume of the videos in percent
 
-The following responses are considered reachable:
 
-    HTTP 2xx
-    HTTP 3xx
-    HTTP 4xx
+===============================================================================
+Audio Player (optional, in every mode)
+===============================================================================
 
-Network errors and HTTP 5xx responses are considered unavailable.
+Jingles: audio files in the folder AUDIO on the drive SHOWPLAYPI, played on
+command (OSC), e.g. from a Companion button. Background music: the folder
+AUDIO/LOOP is playlist 1, its subfolders are further playlists.
+Formats: WAV, MP3, FLAC, OGG/Opus, M4A/AAC. The sound plays on all outputs at
+once (HDMI, headphone jack of the Pi 4, USB sound card).
 
-Local file:// pages are not monitored.
+[AUDIO]
+
+ENABLED=no             yes = switch the audio player on
+AUTOSTART=no           yes = start playlist 1 after the start
+VOLUME=100             volumes in percent: all audio,
+LOOP_VOLUME=80         the playlist,
+JINGLE_VOLUME=100      the jingles
+JINGLE_MODE=duck       during a jingle the playlist gets quieter (duck) or
+DUCK_LEVEL=30          pauses (pause); DUCK_LEVEL = percent while ducked
+REPEAT=all             all = endless loop, one = current track, off = once
+SHUFFLE=no             yes = random order
+
+
+===============================================================================
+Ontime Settings (MODE=ontime)
+===============================================================================
+
+[ONTIME]
+
+VIEW=timer
+
+    Ontime view on the screen: timer, backstage, countdown, studio or
+    timeline. Options of the view can follow after "?", for example:
+
+        backstage?stopCycle=true
+
+    Ontime's own OSC input, if enabled in Ontime, must not use port 23878.
+
+
+===============================================================================
+Companion (MODE=companion)
+===============================================================================
+
+Companion has no section of its own. Set it up in a browser at
+http://showplaypi-xxxxxx.local:8000. USB control surfaces such as the Stream
+Deck can be plugged into ShowPlayPI. Backups are stored in COMPANION/BACKUP
+on the drive SHOWPLAYPI.
+
+Companion's own OSC receiver, if enabled, must not use port 23878.
+
+Every Companion connection needs memory: a Pi with 1 GB is enough for about
+5 connections, 2 GB for typical events, 4 GB for large setups.
 
 
 ===============================================================================
@@ -317,34 +340,16 @@ FALLBACK=1920x1080@60
 RESOLUTION=1920x1080
 REFRESH=60
 
+    auto    use the preferred mode of the connected display; without a
+            display (or without usable display data) use FALLBACK
+    fixed   always use RESOLUTION and REFRESH
 
-MODE=auto
-
-    Uses the preferred mode reported by the connected display through EDID.
-
-    If no usable EDID is available, ShowPlayPI uses FALLBACK.
-
-
-MODE=fixed
-
-    Always uses RESOLUTION and REFRESH.
-
-
-FALLBACK=1920x1080@60
-
-    Display mode used when no usable EDID is available.
-
-
-RESOLUTION=1920x1080
-REFRESH=60
-
-    Display mode used when MODE=fixed.
-
-The default headless and fallback output is 1920 x 1080 at 60 Hz.
+Without a display ShowPlayPI outputs 1920 x 1080 at 60 Hz, so video mixers
+and projectors stay locked. Use the HDMI port next to the USB-C socket.
 
 
 ===============================================================================
-VNC Remote Access
+VNC Remote View
 ===============================================================================
 
 [VNC]
@@ -352,34 +357,12 @@ VNC Remote Access
 ENABLED=yes
 PORT=5900
 
+    Shows exactly what is on the screen, in every mode. Connect with any
+    VNC viewer to:
 
-ENABLED
+        showplaypi-xxxxxx.local:5900    (or the IP address)
 
-    Available values:
-
-        yes
-        no
-
-    Enables or disables VNC remote access.
-
-
-PORT
-
-    TCP port used by the VNC server.
-
-    Default:
-
-        5900
-
-Connect with a VNC viewer using:
-
-    showplaypi-xxxxxx.local:5900    (device name: see HOSTNAME)
-
-or the current IP address:
-
-    192.168.1.100:5900
-
-VNC displays the actual Chromium kiosk session shown on the HDMI output.
+    Password: admin
 
 
 ===============================================================================
@@ -390,21 +373,11 @@ Network Share
 
 ENABLED=yes
 
-
-ENABLED
-
-    Available values:
-
-        yes
-        no
-
     Shares the SHOWPLAYPI drive (configuration, HTML, VIDEO, AUDIO, PRESETS)
     on the local network.
 
     Windows:  \\showplaypi-xxxxxx.local\SHOWPLAYPI
     Mac:      smb://showplaypi-xxxxxx.local/SHOWPLAYPI
-
-    showplaypi-xxxxxx is the device name (see HOSTNAME).
 
     User name admin, password admin. While a computer uses the drive over
     USB-C, the network share pauses.
@@ -418,14 +391,6 @@ Time Server
 
 ENABLED=yes
 
-
-ENABLED
-
-    Available values:
-
-        yes
-        no
-
     Serves the time to every device on the network (NTP, UDP port 123).
     Enter showplaypi-xxxxxx.local or the IP address as time server on the
     other devices. Without an internet time source ShowPlayPI serves its own
@@ -433,52 +398,102 @@ ENABLED
 
 
 ===============================================================================
+Discovery
+===============================================================================
+
+[DISCOVERY]
+
+UPNP=yes
+
+    Announces the running web interfaces (Companion, Ontime), so they appear
+    in Windows under "Network" and open with a double-click.
+
+
+===============================================================================
+OSC Remote Control
+===============================================================================
+
+[OSC]
+
+ENABLED=yes
+PORT=23878
+
+    Live control via OSC (UDP port 23878, fixed), e.g. from Bitfocus
+    Companion: change the web page, control videos and audio, choose
+    Companion emulators and Ontime views, black out the picture.
+
+    Changes made via OSC last until the next restart. All commands:
+    docs/OSC.md in the full documentation (see the top of this file).
+
+
+===============================================================================
+Security
+===============================================================================
+
+ShowPlayPI is built for isolated event networks and is deliberately easy to
+use: the passwords are admin, and OSC has no password. Do not connect it
+unchanged to a company network or the internet. VNC, the network share, the
+time server, the UPnP announcement and OSC can each be switched off above.
+
+
+===============================================================================
 Automatic Recovery
 ===============================================================================
 
-ShowPlayPI automatically recovers from:
+ShowPlayPI keeps itself running:
 
-    Chromium termination or crash
-    Xorg termination or crash
-    VNC server termination or crash
-    temporary website failure
-    temporary network interruption
-
-Chromium and the graphical session restart automatically when required.
-
-A VNC connection may disconnect briefly while Xorg restarts. Reconnect after
-a few seconds.
+    The browser, the video player, Companion, Ontime and VNC restart
+    automatically if they stop.
+    A web page that is not reachable is loaded as soon as it is.
+    Deleted folders and the configurator on the drive SHOWPLAYPI are
+    restored.
+    An invalid showplaypi.ini is ignored; the last working configuration
+    stays active.
+    Deleting showplaypi.ini resets the configuration to the delivery state
+    at the next start (your files are kept).
 
 
 ===============================================================================
 Troubleshooting
 ===============================================================================
 
-The setup page appears instead of the configured website:
+The setup page appears instead of my web page:
 
-    Check the URL value in the [BROWSER] section.
-    Make sure the address starts with http://, https:// or file://.
-
-
-ShowPlayPI is not reachable after configuring a static IP:
-
-    Power off ShowPlayPI.
-    Remove the SD card.
-    Open showplaypi.ini.
-    Correct the [NETWORK] section or set MODE=dhcp.
+    Check URL in [BROWSER]; it must start with http://, https:// or file://.
 
 
-A website does not return after a server outage:
+Companion or ontime mode shows another page:
 
-    Make sure WATCHDOG_ENABLED=yes.
-    Check that WATCHDOG_INTERVAL is between 2 and 300.
+    An own URL in [BROWSER] replaces their view - leave it empty.
+
+
+Videos stutter:
+
+    Convert them to H.265/HEVC. On a Pi 5, H.264 is only smooth up to
+    1080p with 30 frames per second.
+
+
+Not reachable after setting a static IP:
+
+    Power off, put the SD card into a computer, correct [NETWORK] or set
+    MODE=dhcp.
+
+
+No picture on the display:
+
+    Use the HDMI port next to the USB-C socket. Try [DISPLAY] MODE=fixed
+    with a resolution the display supports.
+
+
+The .local name is not found:
+
+    Use the IP address shown on the setup page; some networks block .local
+    names.
 
 
 VNC does not connect:
 
-    Make sure ENABLED=yes in the [VNC] section.
-    Check the configured VNC port.
-    Make sure the computer and ShowPlayPI can reach each other.
+    Make sure ENABLED=yes in [VNC] and use port 5900.
 
 
 ===============================================================================
@@ -487,13 +502,13 @@ Important Notes
 
 Do not rename section names or setting names.
 
-MODE exists in both [NETWORK] and [DISPLAY]. Always edit the correct section.
+MODE exists in [SYSTEM], [NETWORK] and [DISPLAY]. Always edit the correct
+section.
 
-Use a plain-text editor and save showplaypi.ini as UTF-8.
+Use a plain-text editor and save showplaypi.ini as UTF-8. Do not use
+word-processing applications such as Microsoft Word.
 
-Do not use word-processing applications such as Microsoft Word.
-
-Always safely eject the SD card before removing it from a computer.
+Always safely eject the SD card or the drive before unplugging it.
 
 ShowPlayPI Configuration Guide
 ===============================================================================
