@@ -13,7 +13,8 @@
 #
 # Partition layout (MBR): 1 boot (FAT, 512 MB) · 2 Linux (ext4) · 3 media (exFAT, rest of the card).
 # On the first start the Linux partition grows to 12 GiB – on small cards less, so that the media partition
-# gets at least 3 GiB, but never below 10.5 GiB.
+# gets at least 3 GiB, but never below 10.5 GiB (16 GB cards: 14.4–14.9 GiB). Cards too small for that (8 GB)
+# give the media partition 1 GiB and the Linux partition the rest (about 5.9 GiB).
 #
 # showplaypi.ini exists three times:
 #   /etc/showplaypi/showplaypi.ini   active configuration, read by all ShowPlayPI services (never visible)
@@ -55,6 +56,8 @@ ALIGNMENT=8192
 ROOT_TARGET=$((12 * GIB))
 ROOT_MINIMUM=$((21 * GIB / 2))
 MEDIA_TARGET=$((3 * GIB))
+# Media partition on cards smaller than 16 GB (8 GB: room for small videos and pictures)
+MEDIA_SMALL_CARD=$GIB
 MEDIA_MINIMUM=$((GIB / 4))
 
 # Set when the media partition got a new, empty file system during this run
@@ -105,6 +108,8 @@ create_media_partition() {
     root_new=$((disk_size - root_start - MEDIA_TARGET))
     (( root_new > ROOT_TARGET )) && root_new=$ROOT_TARGET
     (( root_new < ROOT_MINIMUM )) && root_new=$ROOT_MINIMUM
+    # Small card (8 GB): the media partition gets 1 GiB, the Linux partition the rest
+    (( disk_size - root_start - root_new < MEDIA_SMALL_CARD )) && root_new=$((disk_size - root_start - MEDIA_SMALL_CARD))
     (( root_new < root_size )) && root_new=$root_size
 
     media_start=$(( (root_start + root_new + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT ))

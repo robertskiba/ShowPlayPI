@@ -73,6 +73,10 @@ connections), a memory warning, and fixes from the first tests on the Raspberry 
 - Companion allows shell commands (e.g. the internal "run shell command" action), shows its version
   notifications and uses IPv4 only (its admin interface listens on 0.0.0.0) by default; all can be changed
   with `sudo companion-config`.
+- **8 GB cards work like larger ones:** the image is smaller (its Linux partition is shrunk to its content when
+  it is built), so on an 8 GB card the first start creates the drive `SHOWPLAYPI` with about 1 GB as well –
+  USB-C, network share and media folders work. Cards of 16 GB and more are divided as before. The swap file
+  is at most 1 GiB, and 1 % instead of 5 % of the Linux partition is reserved.
 
 ### Known issues
 - Only the HDMI port next to the USB-C socket is fully supported; both outputs with the same picture are

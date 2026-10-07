@@ -90,7 +90,7 @@ imager/        icon for the Raspberry Pi Imager list
 
 ```
 /boot/firmware          partition 1, FAT: firmware, kernel, config.txt, cmdline.txt, showplaypi.ini (copy)
-/                       partition 2, ext4: the system (12 GiB after the first start)
+/                       partition 2, ext4: the system (12 GiB after the first start, about 5.9 GiB on 8 GB cards)
 /media/showplaypi       partition 3, exFAT "SHOWPLAYPI": showplaypi.ini (copy), configurator, HTML, VIDEO,
                         AUDIO, PRESETS – also the USB drive and the network share
 /etc/showplaypi/showplaypi.ini   the active configuration, read by all ShowPlayPI services

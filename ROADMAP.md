@@ -87,6 +87,8 @@ marked as done is in 1.0.0 – most of it first versions tested on a Pi 5.
       `showplaypi-monitor` now logs a warning when the memory runs low (with the number of Companion
       connections and advice), `/showplaypi/system` reports it via OSC; the RAM recommendation is in README
       and configurator (1 GB up to about 5 connections, 2 GB typical events, 4 GB large setups)
+- [ ] **8 GB card:** flash 1.0.0 and check the first start (SHOWPLAYPI about 1 GiB, free space on the Linux
+      partition in browser and Companion mode)
 - [ ] Measure Companion on 2 and 4 GB and with real modules (ATEM, vMix …) to confirm the recommendation
 - [ ] **RTC battery on the Pi 5:** test the official battery (clock after a power-off without network);
       decide whether sold devices come with it and whether its charging is switched on
@@ -126,6 +128,9 @@ Pi 5 – with and without a display, with and without network.
     the rest of the card, created on the first start (`showplaypi-media`, takes seconds – nothing is
     moved). **Designed for 16 GB cards:** it gets at least 3 GiB – on small cards the Linux partition
     shrinks for it (down to 10.5 GiB), because "16 GB" cards differ in real size (about 14.4–14.9 GiB).
+    **8 GB cards** (2026-10-07): SHOWPLAYPI gets 1 GiB, the Linux partition the rest (about 5.9 GiB) – the
+    image's Linux partition is shrunk to its content plus 768 MB when it is built, so it fits; the swap file
+    is limited to 1 GiB and the root reserve to 1 %.
     Contents: `showplaypi.ini`, configurator, README, `HTML/`, `VIDEO/`, `AUDIO/`, `AUDIO/LOOP/`,
     `PRESETS/`, `COMPANION/BACKUP/` (Companion mode).
   - **Three copies of `showplaypi.ini`:** boot partition (edit right after flashing), media partition

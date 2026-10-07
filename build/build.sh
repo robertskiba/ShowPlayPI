@@ -45,7 +45,7 @@ install -D -m 644 "$REPO/bootfs/showplaypi.ini" "$SRC/rootfs/usr/share/showplayp
 
 # --- Tools -------------------------------------------------------------------
 missing=()
-for tool in curl xz parted losetup resize2fs e2fsck zerofree skopeo; do
+for tool in curl xz parted losetup resize2fs e2fsck tune2fs dumpe2fs sfdisk partx zerofree skopeo; do
     command -v "$tool" >/dev/null || missing+=("$tool")
 done
 [[ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]] || missing+=(qemu-aarch64)
@@ -211,11 +211,28 @@ for attempt in 1 2 3 4 5; do
     udevadm settle 2>/dev/null || true
     sleep 3
 done
+# The Linux partition shrinks to its content plus headroom: the image also fits on 8 GB cards (and is quicker
+# to flash); the first start grows it again (showplaypi-media). 1 % instead of 5 % is reserved for root.
+log "Shrinking the Linux partition"
+tune2fs -m 1 "${LOOP}p2" >/dev/null
+BLOCK_SIZE=$(dumpe2fs -h "${LOOP}p2" 2>/dev/null | sed -n 's/^Block size: *//p')
+MIN_BLOCKS=$(resize2fs -P "${LOOP}p2" 2>/dev/null | sed -n 's/^Estimated minimum size of the filesystem: *//p')
+[[ $BLOCK_SIZE =~ ^[0-9]+$ && $MIN_BLOCKS =~ ^[0-9]+$ ]] || die "Could not determine the size of the Linux partition"
+ROOT_BLOCKS=$(( MIN_BLOCKS + ROOT_HEADROOM_MB * 1024 * 1024 / BLOCK_SIZE ))
+resize2fs "${LOOP}p2" "$ROOT_BLOCKS" >/dev/null || die "Shrinking the Linux partition failed"
+e2fsck -fy "${LOOP}p2" >/dev/null || [[ $? -le 1 ]] || die "e2fsck after shrinking failed"
+
 # Fill free space with zeros: deleted package files would otherwise compress badly
 log "Zeroing free space (smaller download)"
 zerofree "${LOOP}p2"
 losetup -d "$LOOP"
 LOOP=""
+
+ROOT_START=$(partx -g -o START -n 2 "$IMG" | tr -d ' ')
+ROOT_SECTORS=$(( ROOT_BLOCKS * BLOCK_SIZE / 512 ))
+echo "start=$ROOT_START, size=$ROOT_SECTORS" | sfdisk --quiet --no-reread --no-tell-kernel -N 2 "$IMG"     || die "Shrinking partition 2 failed"
+truncate -s $(( (ROOT_START + ROOT_SECTORS) * 512 )) "$IMG"
+echo "    Linux partition: $(( ROOT_SECTORS / 2048 )) MiB, image: $(( (ROOT_START + ROOT_SECTORS) / 2048 )) MiB"
 
 # --- 8. Compress -------------------------------------------------------------
 log "Compressing to build/out/$NAME.img.xz"

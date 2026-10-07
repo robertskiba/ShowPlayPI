@@ -65,7 +65,8 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
   connections), **2 GB** for typical events, **4 GB** recommended for large setups. When the memory runs
   low, ShowPlayPI logs a warning (`journalctl -u showplaypi-monitor`), and `/showplaypi/system` reports it
   via OSC.
-- A microSD card, **16 GB or larger**
+- A microSD card, **8 GB or larger** – **16 GB or more recommended**: on an 8 GB card the drive `SHOWPLAYPI`
+  gets about 1 GB (enough for configuration, web pages, pictures and short videos)
 - A suitable power supply (Pi 5: 27 W USB-C, Pi 4: 15 W USB-C) – **or Power over Ethernet**: the official
   PoE HATs work on both models, **PoE+ is recommended** (a single network cable for power and data)
 - A micro-HDMI to HDMI cable – use the HDMI port **next to the USB-C power socket** (see

@@ -9,6 +9,7 @@
 644 root root /etc/sudoers.d/010_admin-nopasswd
 644 root root /etc/systemd/journald.conf.d/persistent.conf
 644 root root /etc/systemd/journald.conf.d/limits.conf
+644 root root /etc/rpi/swap.conf.d/showplaypi.conf
 644 root root /etc/pipewire/pipewire.conf.d/showplaypi-all-outputs.conf
 644 root root /etc/wireplumber/wireplumber.conf.d/showplaypi.conf
 644 root root /var/lib/systemd/linger/admin
