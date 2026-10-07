@@ -74,7 +74,9 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
       (partitions, drive `SHOWPLAYPI`), every mode, audio player, USB configuration mode, network share, OSC,
       VNC, watchdog
 - [ ] **Pi 4B:** USB configuration mode, headphone jack, video player (H.264 hardware decoding), Companion and
-      Ontime – so far only tested on the Pi 5
+      Ontime – so far only tested on the Pi 5. First field test (2026-10-07, Pi 4B 4 GB, beta.3, browser mode
+      with a Companion emulator page at an event): booted in 21 s, no errors, no under-voltage, 39 °C. Found and
+      fixed: a device name with "_" was ignored; the boot log was removed once the clock was set
 - [x] **Booting without network** does not delay the picture (2026-09-27): the X session no longer waits for
       `network-online.target` – on the Pi 5 the picture comes about 4.5 s earlier with network, and without a
       cable or DHCP server no longer up to a minute later; a web page is loaded by the watchdog as soon as it is

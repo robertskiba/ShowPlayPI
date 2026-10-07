@@ -1,0 +1,20 @@
+#!/bin/bash
+# ShowPlayPI: removes system log entries older than 14 days (devices are often passed on without a reset, and
+# the log contains e.g. visited addresses). Runs daily before showplaypi-data-hygiene.
+#
+# The log of the current start is always kept: right after a start without a clock its first entries are dated
+# too early (up to the last known time), and they must not be removed as "old" once the clock is set.
+
+RETENTION_SECONDS=$((14 * 24 * 3600))
+
+first_entry="$(journalctl --boot --output=short-unix --quiet --no-pager 2>/dev/null | head -n 1 | cut -d' ' -f1)"
+first_entry="${first_entry%%.*}"
+
+keep_seconds="$RETENTION_SECONDS"
+if [[ "$first_entry" =~ ^[0-9]+$ ]]; then
+    current_start_age=$(( $(date +%s) - first_entry + 60 ))
+    [ "$current_start_age" -gt "$keep_seconds" ] && keep_seconds="$current_start_age"
+fi
+
+journalctl --vacuum-time="${keep_seconds}s" --quiet >/dev/null 2>&1
+exit 0

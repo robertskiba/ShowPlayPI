@@ -20,6 +20,14 @@ versions follow [Semantic Versioning](https://semver.org/).
   minute late; now it comes right after the start in every mode (with network about 4.5 s earlier too). A web
   page that is not reachable yet is loaded as soon as it is, and the setup page shows the IP address as soon
   as the device has one.
+- **Device names with "_" or spaces** were ignored, and the device kept the name `raspberrypi` (found on a
+  Pi 4 at an event with `HOSTNAME=aqlrack_browserpi`). Every character other than letters, digits and hyphens
+  now becomes a hyphen (`aqlrack-browserpi`) – on the device and in the configurator, which no longer rejects
+  such a name.
+- **Lost boot log on devices without a clock:** right after the start the clock stood at an old date, and the
+  system log removed everything written until the clock was set as "older than 14 days" – the log of the
+  start was gone. The clock now starts at the last known time from the very beginning (or the build of the
+  image), and old entries are removed daily without ever touching the log of the current start.
 - The `README.txt` on the boot partition was still written for the browser alone: it now describes all four
   modes, the audio player and every section of `showplaypi.ini` with its default.
 

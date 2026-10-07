@@ -7,7 +7,9 @@
 #     computer last saved showplaypi.ini on the drive SHOWPLAYPI (date of the file in the exFAT file system,
 #     written with the computer's clock) and the build of the image – whichever is the latest. Offline this is
 #     better than nothing; as soon as a time server answers, chrony corrects the clock.
-#   showplaypi-clock save         (every 10 minutes and at shutdown) keeps the current time for the next start
+#   showplaypi-clock save         (every 10 minutes and at shutdown) keeps the current time for the next start;
+#     it also touches systemd's clock file, which systemd uses at the very beginning of the next start (before
+#     the system log starts – otherwise its entries are dated too early and the log removes them as too old)
 #   showplaypi-clock              (showplaypi-clock.service) watches the clock after the start:
 #     - waits for chrony (Debian's NetworkManager hooks make it synchronise as soon as the network is up and
 #       add time servers the router announces via DHCP)
@@ -25,6 +27,7 @@ HTTP_TIME_URLS="http://ip-api.com/ http://www.msftconnecttest.com/connecttest.tx
 LAST_KNOWN_FILE="/var/lib/showplaypi/last-known-time"
 MEDIA_CONFIG="/media/showplaypi/showplaypi.ini"
 BUILD_FILE="/etc/showplaypi-build"
+SYSTEMD_CLOCK_FILE="/var/lib/systemd/timesync/clock"
 HTTP_AFTER_SECONDS=120
 GIVE_UP_SECONDS=900
 JUMP_SECONDS=300
@@ -61,6 +64,8 @@ http_time() {
 if [ "${1:-}" = "save" ]; then
     mkdir -p "$(dirname "$LAST_KNOWN_FILE")"
     date +%s > "$LAST_KNOWN_FILE.new" && mv "$LAST_KNOWN_FILE.new" "$LAST_KNOWN_FILE"
+    mkdir -p "$(dirname "$SYSTEMD_CLOCK_FILE")"
+    touch "$SYSTEMD_CLOCK_FILE"
     exit 0
 fi
 

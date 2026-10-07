@@ -4,4 +4,6 @@ Description=ShowPlayPI browser data hygiene (regular cache cleanup)
 [Service]
 Type=oneshot
 User=admin
+# System log entries older than 14 days (as root)
+ExecStartPre=-+/usr/local/sbin/showplaypi-journal-cleanup
 ExecStart=/usr/local/bin/showplaypi-data-hygiene timer

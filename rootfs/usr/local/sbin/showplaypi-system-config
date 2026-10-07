@@ -70,6 +70,16 @@ HOSTNAME_VALUE="$(ini_get SYSTEM HOSTNAME)"
 TIMEZONE_VALUE="$(ini_get SYSTEM TIMEZONE)"
 NTP_SERVER_VALUE="$(ini_get SYSTEM NTP_SERVER)"
 
+# A device name may only contain letters, digits and hyphens: every other character (e.g. "_", a space or a
+# dot) becomes a hyphen, so "stage_left" is used as "stage-left" instead of being rejected.
+REQUESTED_HOSTNAME="$HOSTNAME_VALUE"
+HOSTNAME_VALUE="$(printf '%s' "$HOSTNAME_VALUE" | LC_ALL=C sed -E 's/[^A-Za-z0-9-]+/-/g; s/-+/-/g; s/^-+//')"
+HOSTNAME_VALUE="${HOSTNAME_VALUE:0:63}"
+HOSTNAME_VALUE="$(printf '%s' "$HOSTNAME_VALUE" | sed -E 's/-+$//')"
+if [ -n "$REQUESTED_HOSTNAME" ] && [ "$HOSTNAME_VALUE" != "$REQUESTED_HOSTNAME" ]; then
+    log_message "Hostname \"$REQUESTED_HOSTNAME\" contains characters that are not allowed – using: ${HOSTNAME_VALUE:-showplaypi}"
+fi
+
 # The default name "showplaypi" gets the last six digits of the Ethernet MAC address (e.g. showplaypi-e84042):
 # unique and fixed from the first start, so several devices never share a name – even if they are not
 # online at the same time. A name set in showplaypi.ini is used as it is.

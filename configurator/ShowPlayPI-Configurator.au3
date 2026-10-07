@@ -70,7 +70,8 @@ GUICtrlSetTip($g_idMode, "browser = web page (Browser tab), video = videos and i
 
 GUICtrlCreateLabel("Hostname", 45, 120, 180, 20)
 Global $g_idHostname = GUICtrlCreateInput(IniRead($g_sIniPath, "SYSTEM", "HOSTNAME", "showplaypi"), 245, 115, 390, 26)
-GUICtrlSetTip($g_idHostname, "showplaypi = automatic: showplaypi- plus the last six digits of the MAC address, e.g. showplaypi-e84042")
+GUICtrlSetTip($g_idHostname, "showplaypi = automatic: showplaypi- plus the last six digits of the MAC address, e.g. showplaypi-e84042" & @CRLF & _
+        "Letters, digits and hyphens - other characters such as _ become a hyphen when saving")
 
 GUICtrlCreateLabel("Timezone", 45, 165, 180, 20)
 Global $g_sCurrentTimezone = IniRead($g_sIniPath, "SYSTEM", "TIMEZONE", "auto")
@@ -549,10 +550,14 @@ Func _SaveConfiguration($bRestart = False)
     Local $iAudioJingleVolume = Number(GUICtrlRead($g_idAudioJingleVolume))
     Local $iAudioDuckLevel = Number(GUICtrlRead($g_idAudioDuckLevel))
 
-    If Not StringRegExp($sHostname, "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$") Then
-        _ValidationError("Enter a valid hostname.", $g_idHostname)
-        Return
-    EndIf
+    ; A device name may only contain letters, digits and hyphens: every other character (e.g. "_" or a space)
+    ; becomes a hyphen - the same rule ShowPlayPI applies to a name entered with a text editor
+    $sHostname = StringRegExpReplace($sHostname, "[^A-Za-z0-9-]+", "-")
+    $sHostname = StringRegExpReplace($sHostname, "-+", "-")
+    $sHostname = StringRegExpReplace($sHostname, "^-+", "")
+    $sHostname = StringRegExpReplace(StringLeft($sHostname, 63), "-+$", "")
+    If $sHostname = "" Then $sHostname = "showplaypi"
+    GUICtrlSetData($g_idHostname, $sHostname)
 
     If $sTimezone = "" Or StringInStr($sTimezone, "..") Then
         _ValidationError("Enter a valid Linux timezone, for example Europe/Berlin.", $g_idTimezone)

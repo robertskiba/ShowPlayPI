@@ -173,7 +173,7 @@ ShowPlayPI card it is started from).
 | Section | Setting | Default | Meaning |
 |---|---|---|---|
 | `[SYSTEM]` | `MODE` | `browser` | Operating mode: `browser`, `video`, `companion` or `ontime` (see [modes](#modes)) |
-| | `HOSTNAME` | `showplaypi` | Device name. The default `showplaypi` becomes `showplaypi-` plus the last six digits of the MAC address, e.g. `showplaypi-e84042` (see [device name](#device-name)); any other name is used as it is |
+| | `HOSTNAME` | `showplaypi` | Device name. The default `showplaypi` becomes `showplaypi-` plus the last six digits of the MAC address, e.g. `showplaypi-e84042` (see [device name](#device-name)); any other name is used as it is – letters, digits and hyphens, other characters such as `_` become a hyphen |
 | | `TIMEZONE` | `auto` | Time zone; `auto` = detected from the internet connection at every start (the public IP address is sent to a free GeoIP service; offline the last detected one is kept, at first `Europe/Berlin`), or a name such as `Europe/London` |
 | | `NTP_SERVER` | `192.53.103.108` | Time server the device takes its time from (PTB, Germany); public time servers and those the router announces are a reserve |
 | | `USB_CONFIG_MODE` | `yes` | Configuration mode while a computer is connected via USB-C: playback pauses, and after unplugging ShowPlayPI restarts with the new settings (`no` = keep playing) |

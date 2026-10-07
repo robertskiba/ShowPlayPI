@@ -168,6 +168,10 @@ SHOWPLAYPI_GIT=$GITREV
 SHOWPLAYPI_BUILT=$(date '+%Y-%m-%d %H:%M:%S')
 SHOWPLAYPI_BASE=$(basename "$BASE_IMAGE_URL")
 EOF
+# systemd sets the clock to this file's date at the very beginning of the first start: the clock never starts
+# before the build, so the first log entries are not dated months too early
+mkdir -p "$ROOT/var/lib/systemd/timesync"
+touch "$ROOT/var/lib/systemd/timesync/clock"
 
 # --- 6. Services, VNC, initramfs ---------------------------------------------
 log "Setting up services"

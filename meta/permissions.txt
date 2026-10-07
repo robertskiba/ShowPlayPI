@@ -74,6 +74,7 @@
 755 root root /usr/local/sbin/showplaypi-media
 755 root root /usr/local/sbin/showplaypi-container-image
 755 root root /usr/local/sbin/showplaypi-clock
+755 root root /usr/local/sbin/showplaypi-journal-cleanup
 755 root root /usr/local/sbin/showplaypi-companion-udev
 755 root root /usr/local/sbin/showplaypi-timezone
 755 root root /usr/local/sbin/showplaypi-splash

@@ -101,7 +101,9 @@ HOSTNAME=showplaypi
 
     Every device thus has its own name from the first start. It is
     reachable as <name>.local (e.g. showplaypi-e84042.local); the name is
-    shown on the setup page. Any other name is used as it is.
+    shown on the setup page. Any other name is used as it is: letters,
+    digits and hyphens - other characters such as _ or a space become a
+    hyphen (stage_left becomes stage-left).
 
 
 TIMEZONE=auto
