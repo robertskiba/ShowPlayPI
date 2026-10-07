@@ -6,6 +6,15 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- OSC `/showplaypi/system` also reports what a controller talks to: product, version, OSC interface version,
+  device name, model, operating mode and the switched-on extras (`audio`) – the Companion module offers only
+  what works in the active mode. The video and audio status contain `updated` (when the times were taken).
+
+### Changed
+- OSC `…/video/status`, `…/video/list`, `…/audio/status` and `…/audio/list` answer at once instead of after
+  200 ms and no longer delay other commands (e.g. a status request every second for countdowns on buttons).
+
 ## [1.0.1] – 2026-10-07
 
 The first stable release (there is no 1.0.0: that tag name cannot be used on GitHub). Compared with

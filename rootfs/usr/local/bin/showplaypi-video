@@ -541,6 +541,8 @@ class Player:
             "type": ("still" if entry.still else "video") if entry else None,
             "elapsed": elapsed, "remaining": remaining, "repeat": self.repeat, "fade": self.fade_ms,
             "volume": self.volume, "mute": self.mute, "blackout": self.blackout,
+            # When the times were taken (Unix time in ms) – a controller can make up for the age of the file
+            "updated": int(time.time() * 1000),
             "playlists": [{"number": number, "name": name, "default": number == 1,
                            "entries": [item.to_json(position, self.durations.get(str(item.path)))
                                        for position, item in enumerate(entries, 1)]}

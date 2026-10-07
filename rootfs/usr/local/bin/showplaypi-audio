@@ -550,6 +550,8 @@ class AudioPlayer:
             },
             "volume": round(self.master),
             "mute": self.mute,
+            # When the times were taken (Unix time in ms) – a controller can make up for the age of the file
+            "updated": int(time.time() * 1000),
             "jingles": [track.to_json(position, self.durations)
                         for position, track in enumerate(self.jingles, 1)],
             "playlists": [{"number": number_, "name": name, "default": number_ == 1,

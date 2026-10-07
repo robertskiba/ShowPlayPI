@@ -249,8 +249,9 @@ Pi 5 – with and without a display, with and without network.
       Implemented through Chromium policies (URL allow/block list); the session start page is always allowed;
       optionally also disable the context menu (right click / long press)
 - [ ] **Bonjour/mDNS announcement** so controllers find devices automatically (Companion modules can
-      discover devices via Bonjour): advertise the OSC service (`_osc._udp`, port 23878) and a ShowPlayPI
-      service with TXT records (name, version, mode) via Avahi
+      discover devices via Bonjour): advertise the OSC service (`_osc._udp`, port 23878) via Avahi with TXT
+      records `product=ShowPlayPI` (never changes), `version`, `api=1`, `mode` – the Companion module filters
+      on `product` (`{"type": "osc", "protocol": "udp", "port": 23878, "txt": {"product": "ShowPlayPI"}}`)
 - [ ] **Setup/status page:** IP, hostname, URL, mode, watchdog/OSC/VNC status, version; a note when the
       configuration was invalid, a warning when the media partition has a foreign file system
 - [ ] **Network recovery:** if a static IP does not work, the device stays reachable (e.g. an additional

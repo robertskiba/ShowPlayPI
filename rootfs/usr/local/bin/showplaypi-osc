@@ -39,6 +39,10 @@ AUDIO_STATUS_FILE = RUNTIME_DIRECTORY / "audio-status.json"
 AUDIO_PLAYER_FLAG = RUNTIME_DIRECTORY / "audio-player"
 # Load, memory, temperature – written every 5 seconds by showplaypi-monitor
 SYSTEM_STATUS_FILE = RUNTIME_DIRECTORY / "system-status.json"
+RELEASE_FILE = Path("/etc/showplaypi-release")
+MODEL_FILE = Path("/proc/device-tree/model")
+# Version of this OSC interface (docs/OSC.md), reported as "api" by /showplaypi/system
+OSC_API_VERSION = 1
 BROWSER_MODES = ("browser", "ontime", "companion")
 # Companion mode: Companion runs on the device (showplaypi-companion.service)
 COMPANION_PORT_COMMAND = "/usr/local/bin/showplaypi-companion-port"
@@ -437,26 +441,45 @@ def send_to_audio(command, arguments):
             raise RuntimeError(f"Audio player is not running: {error}")
 
 
-def reply_system(osc_socket, source, arguments):
-    # /showplaypi/system [port]: the load of the device to the sender (its source port, or the given port)
+def identification(mode):
+    """What a controller talks to – the same fields as the planned /showplaypi/hello (docs/OSC.md)."""
+    version = ""
+    try:
+        for line in RELEASE_FILE.read_text(encoding="utf-8").splitlines():
+            if line.startswith("SHOWPLAYPI_VERSION="):
+                version = line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    try:
+        model = MODEL_FILE.read_text(encoding="utf-8", errors="replace").strip("\0 \n").split(" Rev ")[0]
+    except OSError:
+        model = ""
+    return {
+        "product": "ShowPlayPI", "version": version, "api": OSC_API_VERSION, "name": socket.gethostname(),
+        "model": model, "mode": mode, "services": ["audio"] if AUDIO_PLAYER_FLAG.exists() else [],
+    }
+
+
+def reply_system(osc_socket, source, arguments, mode):
+    # /showplaypi/system [port]: identification and load of the device to the sender (its source port, or the
+    # given port)
     destination = source
 
     if arguments:
         destination = (source[0], whole_number(arguments[0], "port", 1, 65535))
 
     try:
-        status = SYSTEM_STATUS_FILE.read_text(encoding="utf-8")
-        json.loads(status)
+        status = json.loads(SYSTEM_STATUS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise RuntimeError(f"No system state available: {error}")
 
-    reply(osc_socket, destination, "/showplaypi/system", status)
+    reply(osc_socket, destination, "/showplaypi/system", json.dumps({**identification(mode), **status}))
 
 
+# status and list are answered from the status file the player writes every second and after every command –
+# without asking the player and without waiting, so frequent requests (e.g. countdowns on buttons) never delay
+# real commands
 def reply_audio_state(osc_socket, destination, command):
-    # The player writes its state right after the command; give it a moment
-    time.sleep(0.2)
-
     try:
         status = json.loads(AUDIO_STATUS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
@@ -472,9 +495,6 @@ def reply_audio_state(osc_socket, destination, command):
 
 
 def reply_video_state(osc_socket, destination, command):
-    # The player writes its state right after the command; give it a moment
-    time.sleep(0.2)
-
     try:
         status = json.loads(VIDEO_STATUS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
@@ -645,10 +665,11 @@ def handle_message(address, arguments, source, mode, osc_socket):
             return
 
         command = address[len("/showplaypi/video/"):]
-        send_to_video(command, arguments)
 
         if command in ("list", "status"):
             reply_video_state(osc_socket, source, command)
+        else:
+            send_to_video(command, arguments)
 
         return
 
@@ -661,7 +682,7 @@ def handle_message(address, arguments, source, mode, osc_socket):
         return
 
     if address == "/showplaypi/system":
-        reply_system(osc_socket, source, arguments)
+        reply_system(osc_socket, source, arguments, mode)
         return
 
     if address.startswith("/showplaypi/ontime/"):
@@ -679,10 +700,11 @@ def handle_message(address, arguments, source, mode, osc_socket):
             return
 
         command = address[len("/showplaypi/audio/"):]
-        send_to_audio(command, arguments)
 
         if command in ("list", "status"):
             reply_audio_state(osc_socket, source, command)
+        else:
+            send_to_audio(command, arguments)
 
         return
 

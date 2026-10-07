@@ -16,7 +16,7 @@ Status: browser mode; video, Companion, Ontime and audio as a first version (see
 | Protocol | OSC 1.0 over **UDP** |
 | Target | IP address or device name of the Pi, e.g. `showplaypi-e84042.local` (shown on the setup page) |
 | Port | **23878** (fixed; chosen so that it does not collide with the default ports of common show-control software) |
-| Replies | none – except `/showplaypi/system`, `/showplaypi/video/list`, `/showplaypi/video/status`, `/showplaypi/audio/list`, `/showplaypi/audio/status` and `/showplaypi/companion/emulators`, which answer to the sender's address and port |
+| Replies | none – except these requests, which answer to the sender's address and port: `/showplaypi/system` (reply `/showplaypi/system`), `/showplaypi/video/list` (reply **`/showplaypi/video/files`**), `/showplaypi/video/status` (reply `/showplaypi/video/status`), `/showplaypi/audio/list` (reply **`/showplaypi/audio/files`**), `/showplaypi/audio/status` (reply `/showplaypi/audio/status`) and `/showplaypi/companion/emulators` (reply `/showplaypi/companion/emulators`) |
 | Bundles | currently **not** supported, single messages only |
 | Argument types | `s` (string), `i` (integer), `f` (float), `T`/`F` (boolean) |
 | Times | always in **milliseconds** (fades, durations, positions, timeouts); volumes always in **percent** |
@@ -111,12 +111,14 @@ milliseconds for this command; the default comes from `showplaypi.ini` (e.g. `[D
 `0` = hard cut). Today the picture switches immediately.
 
 ### `/showplaypi/system [port]`
-Replies to the sender (its source port, or the given `port`) with `/showplaypi/system` and the load of the
-device as JSON – e.g. for a Companion button that shows the memory state. The values are at most five seconds
-old (`showplaypi-monitor`).
+Replies to the sender (its source port, or the given `port`) with `/showplaypi/system`, the identification
+and the load of the device as JSON – e.g. for a Companion button that shows the memory state. The values are
+at most five seconds old (`showplaypi-monitor`).
 
 ```json
-{"cpu": 23, "cores": [30, 18, 25, 19],
+{"product": "ShowPlayPI", "version": "1.0.1", "api": 1, "name": "showplaypi-e84042",
+ "model": "Raspberry Pi 5 Model B", "mode": "browser", "services": ["audio"],
+ "cpu": 23, "cores": [30, 18, 25, 19],
  "ram": {"total": 986, "available": 305, "used": 681, "percent": 69,
          "swap_total": 985, "swap_used": 516, "swap_percent": 52, "state": "normal"},
  "temperature": 48.0, "time": {"synchronized": true, "source": "192.53.103.108", "stratum": 2},
@@ -125,6 +127,10 @@ old (`showplaypi-monitor`).
  "companion_connections": 2}
 ```
 
+- `product`, `version`, `api`, `name`, `model`, `mode` and `services` – the same identification as the
+  planned `/showplaypi/hello`, so a controller can show only what works in the active mode: `mode` is
+  `browser`, `video`, `ontime` or `companion`; `services` lists the extras that are switched on (`audio`);
+  `api` is the version of this OSC interface (1); `product` is always `ShowPlayPI`.
 - CPU load in percent (total and per core, over the last five seconds); RAM, swap and free space in MB;
   temperature in °C; `throttled` from the firmware (under-voltage, throttling now or since the start);
   uptime in milliseconds.
@@ -229,7 +235,9 @@ Companion module:
 ### Discovery via Bonjour/mDNS (release 1.1)
 
 The device announces itself on the network, so controllers such as Companion find it without typing an
-IP address: `_osc._udp` on port 23878 plus a ShowPlayPI service with TXT records (name, version, mode).
+IP address: `_osc._udp` on port 23878 with TXT records, at least `product=ShowPlayPI` (never changes),
+`version=<version>`, `api=1` and `mode=<mode>`. Companion's Bonjour device field can then filter for
+ShowPlayPI devices: `{"type": "osc", "protocol": "udp", "port": 23878, "txt": {"product": "ShowPlayPI"}}`.
 
 ### Display control via HDMI-CEC (release 2.2, draft)
 
@@ -280,7 +288,7 @@ only images as a slideshow:
 |---|---|---|
 | `/showplaypi/video/play` | `[fade]` | start or resume |
 | `/showplaypi/video/pause` | – | pause: a video holds its frame, a still image stays and its timer stops |
-| `/showplaypi/video/toggle` | – | play/pause (one button in Companion) |
+| `/showplaypi/video/toggle` | `[fade]` | play/pause (one button in Companion) |
 | `/showplaypi/video/stop` | `[fade]` | fade to black and stay black (the HDMI signal is kept); the next play starts at the beginning |
 | `/showplaypi/video/next` / `previous` | `[fade]` | next or previous entry |
 | `/showplaypi/video/restart` | – | play the current entry from the beginning |
@@ -299,8 +307,12 @@ only images as a slideshow:
 | `/showplaypi/video/stillduration` | milliseconds | default duration of still images (a tag in the file name wins) |
 | `/showplaypi/video/volume` | `0`–`100` `[fade]` | volume of the videos in percent |
 | `/showplaypi/video/mute` | `0` \| `1` \| `toggle` | mute |
-| `/showplaypi/video/list` | – | send the file list (below) to the requester |
-| `/showplaypi/video/status` | – | send the player state as JSON to the requester |
+| `/showplaypi/video/list` | – | send the file list (below) to the requester, as `/showplaypi/video/files` |
+| `/showplaypi/video/status` | – | send the player state (below) as JSON to the requester, as `/showplaypi/video/status` |
+
+`list` and `status` are answered at once from the state the player writes every second, after every command
+and after every rescan of the folders (every 2 s) – they never delay other commands, so a controller may ask
+for the status once per second.
 
 File list `/showplaypi/video/files` (after the handshake, on changes and on `list`), e.g.:
 
@@ -315,6 +327,14 @@ File list `/showplaypi/video/files` (after the handshake, on changes and on `lis
   ]
 }
 ```
+
+Status `/showplaypi/video/status` (on request and as the full status after the handshake), e.g.:
+`{"state": "playing", "playlist": "VIDEO", "number": 1, "file": "010_Intro.mp4", "title": "010_Intro",
+"type": "video", "elapsed": 12000, "remaining": 30000, "repeat": "all", "fade": 1000, "volume": 100,
+"mute": false, "blackout": false, "updated": 1791392000123}`
+– `state`: `playing` | `paused` | `cued` | `stopped`; `number`, `file`, `title` and `type` are `null` while the
+playlist is empty; `updated` is when the times were taken (Unix time in milliseconds), so a controller can
+make up for the age of the values.
 
 **Feedbacks** for subscribers (on change): `…/video/state` (`playing` \| `paused` \| `cued` \| `stopped`),
 `…/video/playlist`, `…/video/item` (number, title, type), `…/video/elapsed` and `…/video/remaining`
@@ -438,8 +458,11 @@ with or without extension), e.g. `"01_Gong"` for `01_Gong.wav`.
 | `/showplaypi/audio/volume` | `0`–`100` `[fade]` | master volume in percent |
 | `/showplaypi/audio/mute` | `0` \| `1` \| `toggle` | master mute |
 | `/showplaypi/audio/stopall` | `[fade]` | stop playlist and jingle (e.g. an emergency button) |
-| `/showplaypi/audio/list` | – | send the file lists (below) to the requester |
-| `/showplaypi/audio/status` | – | send the player state as JSON to the requester |
+| `/showplaypi/audio/list` | – | send the file lists (below) to the requester, as `/showplaypi/audio/files` |
+| `/showplaypi/audio/status` | – | send the player state (below) as JSON to the requester, as `/showplaypi/audio/status` |
+
+As in the video mode, `list` and `status` are answered at once from the state the player writes every second,
+after every command and after every rescan (every 3 s).
 
 File list `/showplaypi/audio/files` (after the handshake, on changes and on `list`), e.g.:
 
@@ -461,9 +484,11 @@ File list `/showplaypi/audio/files` (after the handshake, on changes and on `lis
 ```
 
 Status `/showplaypi/audio/status` (on request and as the full status after the handshake), e.g.:
-`{"loop": {"state": "playing", "playlist": "LOOP", "number": 1, "file": "Lounge 01.mp3", "elapsed": 83200,
-"remaining": 131300, "volume": 60, "repeat": "all", "shuffle": false}, "jingle": {"state": "stopped",
-"volume": 100, "mode": "duck", "duck": 30}, "volume": 80, "mute": false}`
+`{"loop": {"state": "playing", "playlist": "LOOP", "number": 1, "file": "Lounge 01.mp3", "title": "Lounge 01",
+"elapsed": 83200, "remaining": 131300, "volume": 60, "repeat": "all", "shuffle": false}, "jingle": {"state":
+"playing", "file": "Applause.wav", "elapsed": 1200, "remaining": 3800, "volume": 100, "mode": "duck",
+"duck": 30}, "volume": 80, "mute": false, "updated": 1791392000123}`
+– `jingle.file` is `null` while no jingle plays; `updated` as in the video mode.
 
 **Feedbacks** for subscribers (on change): `…/loop/state` (`playing` \| `paused` \| `stopped`),
 `…/loop/playlist`, `…/loop/track` (number and title), `…/loop/elapsed` and `…/loop/remaining`, `…/jingle/state`,
