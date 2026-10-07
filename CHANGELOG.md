@@ -6,9 +6,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [1.0.0] – 2026-10-07
+## [1.0.1] – 2026-10-07
 
-The first stable release. Compared with 1.0.0-beta.3 it brings a time server for the network and a clock
+The first stable release (there is no 1.0.0: that tag name cannot be used on GitHub). Compared with
+1.0.0-beta.3 it brings a time server for the network and a clock
 that is right even without internet, Companion with all modules on board (no internet needed to add
 connections), a memory warning, and fixes from the first tests on the Raspberry Pi 4.
 
@@ -265,8 +266,8 @@ First beta of ShowPlayPI.
 - Configuration via USB-C depends on the power the computer's USB port delivers.
 - See `ROADMAP.md`, release 1.0, for the complete list.
 
-[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.3...v1.0.0
+[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.3...v1.0.1
 [1.0.0-beta.3]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.2...v1.0.0-beta.3
 [1.0.0-beta.2]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/robertskiba/ShowPlayPI/releases/tag/v1.0.0-beta.1

@@ -8,7 +8,7 @@ dashboard, a schedule, a sign), a looping video and slideshow player, a Companio
 timer display. You configure it with a simple Windows program or a text file – no Linux, no command line –
 and control it live via OSC.
 
-> **Version 1.0.0** – the first stable release. The video, Companion and Ontime modes and the audio player
+> **Version 1.0.1** – the first stable release. The video, Companion and Ontime modes and the audio player
 > are first versions; see [known issues](#known-issues) before using it at a show, and the
 > [roadmap](ROADMAP.md) for what comes next.
 

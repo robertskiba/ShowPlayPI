@@ -52,8 +52,8 @@ More modes should be easy to add later.
 | **3.0** | Companion module, distribution | 1.2 |
 | **3.1** | Companion Satellite: USB control surfaces on the Pi for a remote Companion (extra) | 2.0 |
 
-Release path: `1.0.0-beta.3` (first public beta, 2026-09-26) → `1.0.0` (2026-10-07, directly, without a
-release candidate) → fixes from the remaining hardware tests as `1.0.x`.
+Release path: `1.0.0-beta.3` (first public beta, 2026-09-26) → `1.0.1` (2026-10-07, directly, without a
+release candidate; there is no 1.0.0) → fixes from the remaining hardware tests as `1.0.x`.
 
 ---
 
@@ -65,10 +65,10 @@ release candidate) → fixes from the remaining hardware tests as `1.0.x`.
 
 ## 1.0 – First public release
 
-Released as **1.0.0** on 2026-10-07 after the betas `1.0.0-beta.1` to `-beta.3`. Everything below that is
-marked as done is in 1.0.0 – most of it first versions tested on a Pi 5.
+Released as **1.0.1** on 2026-10-07 after the betas `1.0.0-beta.1` to `-beta.3`. Everything below that is
+marked as done is in 1.0.1 – most of it first versions tested on a Pi 5.
 
-### Tests after 1.0.0 (fixes as 1.0.x)
+### Tests after 1.0.1 (fixes as 1.0.x)
 
 - [ ] **Test the built image from factory on Pi 5 and Pi 4B** – flashing with the Imager, first start
       (partitions, drive `SHOWPLAYPI`), every mode, audio player, USB configuration mode, network share, OSC,
@@ -87,7 +87,7 @@ marked as done is in 1.0.0 – most of it first versions tested on a Pi 5.
       `showplaypi-monitor` now logs a warning when the memory runs low (with the number of Companion
       connections and advice), `/showplaypi/system` reports it via OSC; the RAM recommendation is in README
       and configurator (1 GB up to about 5 connections, 2 GB typical events, 4 GB large setups)
-- [ ] **8 GB card:** flash 1.0.0 and check the first start (SHOWPLAYPI about 1 GiB, free space on the Linux
+- [ ] **8 GB card:** flash 1.0.1 and check the first start (SHOWPLAYPI about 1 GiB, free space on the Linux
       partition in browser and Companion mode)
 - [ ] Measure Companion on 2 and 4 GB and with real modules (ATEM, vMix …) to confirm the recommendation
 - [ ] **RTC battery on the Pi 5:** test the official battery (clock after a power-off without network);
@@ -102,7 +102,7 @@ marked as done is in 1.0.0 – most of it first versions tested on a Pi 5.
       runs on PoE; verify stable operation under load and the HAT fan control
 - [x] Version number visible on the setup page (2026-09-27: with release date and operating mode in the first panel; INI, configurator and SSH banner show it as well)
 - [x] **Published:** the repository is public, `1.0.0-beta.3` is released on GitHub with image, checksum and
-      configurator EXE (2026-09-26); `1.0.0` follows on 2026-10-07
+      configurator EXE (2026-09-26); `1.0.1` follows on 2026-10-07
 - [ ] Imager list at its permanent address `https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json`
       (`rpi-imager.json` in the main folder, updated by every release build – done): test it with
       `rpi-imager --repo <address>` once the repository is public, then apply for the official Imager list
@@ -468,6 +468,8 @@ Stream Deck and other USB control surfaces plugged into the Pi work with a **Com
 - **Automatic conversion to HEVC on the device** (2026-09-26): optional (`[VIDEO] CONVERT=no|idle|always`,
   default `no`), in release 1.2 – originals are kept in `ORIGINALS/VIDEO/`, the HandBrake preset stays the
   fast way on a computer. Details under 1.2.
+- **First stable release is 1.0.1** (2026-10-07): GitHub does not allow the tag name `v1.0.0` in this
+  repository any more (immutable releases), so 1.0.0 is skipped.
 - **1.0.0 directly, without a release candidate** (2026-10-07): the image built as `1.0.0-rc.1` was only
   used for internal tests; the remaining hardware tests (Pi 4, PoE, RTC battery, power from a PC) follow
   after the release, fixes as `1.0.x`.

@@ -16,7 +16,7 @@ body:
     attributes:
       label: ShowPlayPI version
       description: Shown on the setup page, in `version.txt` on the drive SHOWPLAYPI and when logging in via SSH.
-      placeholder: 1.0.0
+      placeholder: 1.0.1
     validations:
       required: true
 

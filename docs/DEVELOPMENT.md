@@ -102,7 +102,8 @@ hands the partition to a computer connected via USB-C and takes it back afterwar
 
 ## Versions
 
-The first stable release is **1.0.0** (2026-10-07), after the betas `1.0.0-beta.1` to `1.0.0-beta.3`. Versions
+The first stable release is **1.0.1** (2026-10-07), after the betas `1.0.0-beta.1` to `1.0.0-beta.3` (there is no
+1.0.0: that tag name cannot be used on GitHub). Versions
 follow semantic versioning: fixes as `1.0.x`, new features as `1.x.0`, `2.0.0` for incompatible changes of
 `showplaypi.ini`.
 

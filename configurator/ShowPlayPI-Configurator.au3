@@ -1,8 +1,8 @@
 #pragma compile(Icon, ShowPlayPI-Configurator.ico)
 #pragma compile(ProductName, ShowPlayPI Configurator)
 #pragma compile(FileDescription, ShowPlayPI Configurator)
-#pragma compile(ProductVersion, 1.0.0)
-#pragma compile(FileVersion, 1.0.0.0)
+#pragma compile(ProductVersion, 1.0.1)
+#pragma compile(FileVersion, 1.0.1.0)
 #pragma compile(OriginalFilename, ShowPlayPI-Configurator.exe)
 
 ; A normal program in the taskbar – no AutoIt tray icon (with "Pause script" and "Exit")
@@ -27,7 +27,7 @@ EndIf
 
 Global Const $g_sIniPath = @ScriptDir & "\showplaypi.ini"
 ; About page values: change these for future releases.
-Global Const $g_sAppVersion = "1.0.0"
+Global Const $g_sAppVersion = "1.0.1"
 Global Const $g_sDownloadUrl = "https://konftools.com"
 Global Const $g_sSupportEmail = "support@konftools.com"
 
