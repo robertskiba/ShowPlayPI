@@ -2,15 +2,15 @@
   "os_list": [
     {
       "name": "ShowPlayPI",
-      "description": "The versatile tool for exhibition and event technology: full-screen browser for interactive and non-interactive screens, video player and audio jingle or loop player. Optionally also a Bitfocus Companion or Ontime host. Easy to set up, no Linux skills required. Version 1.0.0",
+      "description": "The versatile tool for exhibition and event technology: full-screen browser for interactive and non-interactive screens, video player and audio jingle or loop player. Optionally also a Bitfocus Companion or Ontime host. Easy to set up, no Linux skills required. Version 1.0.0-beta.3",
       "icon": "https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/imager/showplaypi-icon.svg",
-      "url": "https://github.com/robertskiba/ShowPlayPI/releases/download/v1.0.0/ShowPlayPI-1.0.0.img.xz",
+      "url": "https://github.com/robertskiba/ShowPlayPI/releases/download/v1.0.0-beta.3/ShowPlayPI-1.0.0-beta.3.img.xz",
       "website": "https://konftools.com",
-      "release_date": "2026-10-07",
-      "extract_size": 6012022784,
-      "extract_sha256": "ebb768a0d00a2c7723f430998bcac9a6699e40f454c98d2f5a4f5dd7890479a2",
-      "image_download_size": 1500993352,
-      "image_download_sha256": "67952e4845ab6f23a31b2191a5f22c6ade5c19dc8171d382a7e064db45548d13",
+      "release_date": "2026-09-26",
+      "extract_size": 7809794048,
+      "extract_sha256": "82b5947b8a73a4384239cf221129fda73edc12a61bdabb113387f603e0964a40",
+      "image_download_size": 1421287876,
+      "image_download_sha256": "c5b558fcdad71c23317d86f5a47c819de1027baa86365cc5851f434165cad414",
       "devices": [
         "pi5-64bit",
         "pi4-64bit"
