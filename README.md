@@ -257,6 +257,17 @@ USB control surfaces such as the Stream Deck can be plugged into the Pi. Compani
 `COMPANION/BACKUP` on the drive. **All modules are on board:** the first start of the Companion mode installs
 the offline module bundle (800+ devices, about a minute), so connections can be added without internet.
 
+Via SSH the same commands as on Bitfocus' CompanionPi are available:
+
+| Command | Purpose |
+|---|---|
+| `sudo companion-update` | update Companion – latest stable or beta, a specific or older version; without questions e.g. `sudo companion-update stable` or `sudo companion-update beta`; `sudo companion-update previous` returns to the version installed before |
+| `sudo companion-config` | launch options such as the admin port, log level or shell commands |
+| `sudo companion-reset` | wipe Companion's configuration (the backups on the drive are kept) |
+| `companion-help` | overview |
+
+An updated Companion stays until a new ShowPlayPI image is installed, which brings its own version.
+
 ### Audio
 
 Copy jingles (WAV, MP3, FLAC, OGG, M4A …) into the folder **`AUDIO`** and background music into
@@ -298,6 +309,10 @@ passwords are `admin`, and OSC has no authentication. **Do not connect it unchan
 the internet.** VNC, the network share, the UPnP announcement, the time server and OSC can each be switched off in
 `showplaypi.ini`; further options to lock everything down (own passwords, OSC password, disabling SSH,
 firewall) are planned – see the [roadmap](ROADMAP.md).
+
+In the Companion mode, Companion may run shell commands on the device (e.g. its "run shell command" action) –
+whoever can use Companion's web interface can control the whole device. Switch it off with
+`sudo companion-config` if needed.
 
 With `TIMEZONE=auto` the device asks a free GeoIP service for its time zone at every start (the public IP
 address is sent to it); set a fixed time zone to avoid this.

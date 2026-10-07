@@ -5,7 +5,7 @@ On Windows they appear under "Network" (Other devices) as e.g. "showplaypi-e8404
 opens the web interface. Only web interfaces that really answer are announced (checked every 10 seconds, in
 every mode), and the announcement is withdrawn when one stops.
 
-- Known web interfaces: Companion (port 8000), Ontime (port 4001).
+- Known web interfaces: Companion (port 8000 or the one set with companion-config), Ontime (port 4001).
 - Switch off: [DISCOVERY] UPNP=no in showplaypi.ini.
 - SSDP on UDP 1900 (multicast 239.255.255.250), device descriptions via HTTP on TCP 23879.
 """
@@ -15,6 +15,7 @@ import logging
 import signal
 import socket
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -253,7 +254,17 @@ def main():
     hostname = socket.gethostname()
     machine_id = MACHINE_ID_FILE.read_text().strip() if MACHINE_ID_FILE.exists() else hostname
     version = release_version()
-    devices = [Device(*service, hostname, machine_id, version) for service in WEB_SERVICES]
+    # Companion's port can be changed with `sudo companion-config` (which restarts this service)
+    companion_port = 8000
+    try:
+        output = subprocess.run(["/usr/local/bin/showplaypi-companion-port"], capture_output=True, text=True,
+                                timeout=5).stdout.strip()
+        companion_port = int(output) if output.isdigit() else 8000
+    except (OSError, subprocess.SubprocessError):
+        pass
+    services = [(name, title, companion_port if name == "companion" else port, description)
+                for name, title, port, description in WEB_SERVICES]
+    devices = [Device(*service, hostname, machine_id, version) for service in services]
 
     description_server(devices)
     announcer = Announcer(devices)

@@ -12,7 +12,8 @@
 CONFIG="/etc/showplaypi/showplaypi.ini"
 RUNTIME_URL_FILE="/run/showplaypi/runtime-url"
 DEFAULT_URL="file:///home/admin/kiosk/setup.html"
-COMPANION_URL="http://127.0.0.1:8000"
+# Companion's port can be changed with `sudo companion-config`
+COMPANION_URL="http://127.0.0.1:$(/usr/local/bin/showplaypi-companion-port)"
 ONTIME_URL="http://127.0.0.1:4001"
 
 validate_url() {

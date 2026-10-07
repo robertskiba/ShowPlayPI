@@ -41,7 +41,7 @@ AUDIO_PLAYER_FLAG = RUNTIME_DIRECTORY / "audio-player"
 SYSTEM_STATUS_FILE = RUNTIME_DIRECTORY / "system-status.json"
 BROWSER_MODES = ("browser", "ontime", "companion")
 # Companion mode: Companion runs on the device (showplaypi-companion.service)
-COMPANION_URL = "http://127.0.0.1:8000"
+COMPANION_PORT_COMMAND = "/usr/local/bin/showplaypi-companion-port"
 COMPANION_CONFIG = Path("/home/admin/companion")
 # Ontime mode: the Ontime server runs on the device (showplaypi-ontime.service)
 ONTIME_URL = "http://127.0.0.1:4001"
@@ -53,6 +53,14 @@ logging.basicConfig(
 
 log = logging.getLogger("showplaypi-osc")
 
+
+def companion_url():
+    """Companion's admin interface – its port can be changed with `sudo companion-config`."""
+    try:
+        port = subprocess.run([COMPANION_PORT_COMMAND], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        port = ""
+    return f"http://127.0.0.1:{port if port.isdigit() else 8000}"
 
 
 def ini_value(section_name, key_name, default_value):
@@ -545,7 +553,7 @@ def companion_command(command, arguments, source, osc_socket):
 
     elif command == "emulator":
         if not arguments:
-            open_url(f"{COMPANION_URL}/emulators")
+            open_url(f"{companion_url()}/emulators")
         else:
             wanted = str(arguments[0]).strip()
             # The ID, or the name as shown in Companion (case-insensitive)
@@ -558,7 +566,7 @@ def companion_command(command, arguments, source, osc_socket):
             if not match or not all(c.isalnum() or c in "-_" for c in match):
                 raise ValueError(f"/showplaypi/companion/emulator: unknown emulator {wanted!r}")
 
-            open_url(f"{COMPANION_URL}/emulator/{match}")
+            open_url(f"{companion_url()}/emulator/{match}")
 
     elif command == "tablet":
         # [pages] [columns] [rows]: e.g. 3 4 2 = page 3 with 4 x 2 buttons
@@ -583,7 +591,7 @@ def companion_command(command, arguments, source, osc_socket):
             rows = whole_number(arguments[2], "rows", 1, 32)
             query += ["min_row=0", f"max_row={rows - 1}"]
 
-        open_url(f"{COMPANION_URL}/tablet?{'&'.join(query)}")
+        open_url(f"{companion_url()}/tablet?{'&'.join(query)}")
 
     elif command == "restart":
         subprocess.run(

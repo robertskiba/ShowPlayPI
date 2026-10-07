@@ -1,0 +1,135 @@
+#!/bin/bash
+# companion-update – updates Bitfocus Companion the same way as on Bitfocus' CompanionPi
+# (https://github.com/bitfocus/companion-pi, MIT License):
+#
+#   sudo companion-update                          choose a version: latest stable or beta, a specific one, a URL
+#   sudo companion-update stable|beta [<version>]  without questions: the newest (or the given) build
+#   sudo companion-update previous                 back to the version that was installed before
+#
+# Differences to CompanionPi: the new version is downloaded and unpacked before the installed one is touched
+# (nothing changes if anything fails), the previous version is kept for "previous", and the offline module
+# bundle of the new build is installed as well (modules without internet). Companion's configuration stays.
+# A new ShowPlayPI image brings its own Companion version again.
+
+set -e
+
+if [[ $(id -u) -ne 0 ]]; then
+    echo "Must be run as root. Try sudo companion-update"
+    exit 1
+fi
+
+SERVICE=showplaypi-companion.service
+SELECTION=/tmp/companion-version-selection
+WORK=/var/tmp/companion-update
+BUNDLE=/usr/share/showplaypi/companion/companion-offline-module-bundle.tar.gz
+# Download, unpacked build and offline module bundle (with some room)
+NEEDED_MB=1800
+
+installed_version() {
+    cat /opt/companion/BUILD 2>/dev/null || echo "unknown"
+}
+
+was_active=no
+systemctl is-active --quiet "$SERVICE" && was_active=yes
+
+start_again() {
+    if [ "$was_active" = yes ]; then
+        systemctl start --no-block "$SERVICE"
+        echo "Companion is starting: http://$(hostname).local:$(/usr/local/bin/showplaypi-companion-port)"
+        [ "${1:-}" = "new-modules" ] &&
+            echo "(The first start of a new version installs its offline modules and takes up to a minute longer.)"
+    else
+        echo "Companion starts in the Companion mode ([SYSTEM] MODE=companion in showplaypi.ini)."
+    fi
+}
+
+if [ "${1:-}" = "previous" ]; then
+    if [ ! -f /opt/companion.previous/main.js ]; then
+        echo "No previous version of Companion is kept."
+        exit 1
+    fi
+    systemctl stop "$SERVICE"
+    mv /opt/companion /opt/companion.swap
+    mv /opt/companion.previous /opt/companion
+    mv /opt/companion.swap /opt/companion.previous
+    /usr/local/sbin/showplaypi-companion-setup
+    echo "Back to Companion $(installed_version) (\"sudo companion-update previous\" switches again)."
+    start_again
+    exit 0
+fi
+
+echo "Installed: Companion $(installed_version)"
+
+rm -f "$SELECTION"
+python3 /usr/local/lib/showplaypi/companion-update-prompt.py "${1:-}" "${2:-}"
+
+if [ ! -f "$SELECTION" ]; then
+    echo "Skipping update"
+    exit 0
+fi
+SELECTED_URL="$(cat "$SELECTION")"
+rm -f "$SELECTION"
+
+# Room for the update: the version before the previous one goes first
+free_mb() {
+    df --output=avail -m / | tail -n 1 | tr -d ' '
+}
+if [ "$(free_mb)" -lt "$NEEDED_MB" ] && [ -d /opt/companion.previous ]; then
+    echo "Removing the previous version of Companion to make room ..."
+    rm -rf /opt/companion.previous
+fi
+if [ "$(free_mb)" -lt "$NEEDED_MB" ]; then
+    echo "Not enough free space: about $NEEDED_MB MB are needed, $(free_mb) MB are free. Nothing was changed."
+    exit 1
+fi
+
+rm -rf "$WORK"
+mkdir -p "$WORK/new"
+trap 'rm -rf "$WORK"' EXIT
+
+echo "Installing from $SELECTED_URL"
+curl --fail --location --progress-bar --output "$WORK/companion.tar.gz" "$SELECTED_URL"
+
+echo "Extracting..."
+tar -xzf "$WORK/companion.tar.gz" --strip-components=2 --no-same-owner -C "$WORK/new" --wildcards '*/resources'
+rm -f "$WORK/companion.tar.gz"
+NODE_EXE="$WORK/new/node-runtime/bin/node"
+[ -d "$WORK/new/node-runtime" ] || NODE_EXE="$WORK/new/node-runtimes/main/bin/node"
+if [ ! -f "$WORK/new/main.js" ] || ! "$NODE_EXE" --version >/dev/null 2>&1; then
+    echo "This is not a Linux build of Companion for this device. Nothing was changed."
+    exit 1
+fi
+
+# Bitfocus publishes the offline module bundle of every build next to it
+BUNDLE_URL=""
+case "$SELECTED_URL" in
+    */companion/companion/companion-linux-arm64-*.tar.gz)
+        BUNDLE_URL="${SELECTED_URL/\/companion\/companion\/companion-linux-arm64-//companion/companion-offline-module-bundle/companion-offline-module-bundle-}"
+        ;;
+esac
+if [ -n "$BUNDLE_URL" ]; then
+    echo "Downloading the offline module bundle of this version ..."
+    if ! curl --fail --location --progress-bar --output "$WORK/bundle.tar.gz" "$BUNDLE_URL"; then
+        rm -f "$WORK/bundle.tar.gz"
+    fi
+fi
+[ -f "$WORK/bundle.tar.gz" ] ||
+    echo "No offline module bundle for this build - modules come from Companion's store (needs internet)."
+
+echo "Finishing"
+systemctl stop "$SERVICE"
+rm -rf /opt/companion.previous
+mv /opt/companion /opt/companion.previous
+mv "$WORK/new" /opt/companion
+if [ -f "$WORK/bundle.tar.gz" ]; then
+    install -D -m 644 "$WORK/bundle.tar.gz" "$BUNDLE"
+fi
+/usr/local/sbin/showplaypi-companion-setup
+
+echo "Update is complete: Companion $(installed_version)"
+echo "Back to the previous version: sudo companion-update previous"
+if [ -f "$WORK/bundle.tar.gz" ]; then
+    start_again new-modules
+else
+    start_again
+fi

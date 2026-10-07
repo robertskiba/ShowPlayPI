@@ -5,7 +5,7 @@ After=showplaypi-mode.service showplaypi-media.service network.target
 After=showplaypi-system-config.service
 # Only in Companion mode ([SYSTEM] MODE=companion, see showplaypi-mode); the browser shows the emulators
 ConditionPathExists=/run/showplaypi/mode-companion
-ConditionPathExists=/opt/companion/companion_headless.sh
+ConditionPathIsDirectory=/opt/companion
 
 [Service]
 Type=simple
@@ -15,6 +15,9 @@ Group=admin
 # showplaypi-companion-udev installs them (group plugdev); 50-showplaypi-companion.rules covers the first start
 SupplementaryGroups=plugdev dialout input
 Environment="COMPANION_SYNC_UDEV_RULES_COMMAND=sudo -n /usr/local/sbin/showplaypi-companion-udev"
+Environment=COMPANION_IN_SYSTEMD=1
+# Layout as on CompanionPi and /etc/companion/config.yaml (companion-config), as root
+ExecStartPre=+/usr/local/sbin/showplaypi-companion-setup
 # Rules of an earlier start, before Companion itself runs
 ExecStartPre=+/usr/local/sbin/showplaypi-companion-udev
 # Companion's backups go to COMPANION/BACKUP on the SHOWPLAYPI drive (a link, Companion's settings unchanged)
@@ -23,11 +26,13 @@ ExecStartPre=/usr/local/bin/showplaypi-companion-backups
 ExecStartPre=-/usr/local/sbin/showplaypi-clock --wait 20
 # Offline module bundle (all modules of the store): installed on the first start of the mode, about a minute
 ExecStartPre=-/usr/local/bin/showplaypi-companion-modules
-# Configuration on the Linux partition; the web interface on port 8000 (Companion's default)
-ExecStart=/opt/companion/companion_headless.sh --config-dir /home/admin/companion --admin-address 0.0.0.0 --admin-port 8000 --no-notifications
+# Launch options from /etc/companion/config.yaml (sudo companion-config; web interface on port 8000 by default),
+# configuration on the Linux partition
+ExecStart=/usr/local/bin/showplaypi-companion-launch
 Restart=always
 RestartSec=3
-# Companion saves its database on shutdown
+# Companion saves its database on shutdown (stopped like on CompanionPi)
+KillSignal=SIGINT
 TimeoutStopSec=20
 # The first start installs the offline module bundle
 TimeoutStartSec=10min

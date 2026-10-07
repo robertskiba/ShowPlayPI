@@ -1,0 +1,29 @@
+#!/bin/bash
+# companion-help – the Companion commands of ShowPlayPI (the same as on Bitfocus' CompanionPi)
+
+echo "Companion runs in the Companion mode of ShowPlayPI ([SYSTEM] MODE=companion in showplaypi.ini)."
+echo "Web interface: http://$(hostname).local:$(/usr/local/bin/showplaypi-companion-port)"
+echo ""
+
+echo "To stop/start/restart or check the status of Companion run:"
+echo "  $ sudo systemctl [start/stop/restart/status] showplaypi-companion"
+echo ""
+
+echo "To update companion run:"
+echo "  $ sudo companion-update"
+echo "and follow the prompts (back to the version before: sudo companion-update previous)"
+echo ""
+
+echo "To edit the companion launch configuration run:"
+echo "  $ sudo companion-config"
+echo "Companion is restarted to apply any changes"
+echo ""
+
+echo "To reset the companion configuration run:"
+echo "  $ sudo companion-reset"
+echo "and follow the prompts"
+echo ""
+
+echo "Companion's log:"
+echo "  $ journalctl -u showplaypi-companion -f"
+echo ""

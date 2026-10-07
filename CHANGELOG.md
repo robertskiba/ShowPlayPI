@@ -58,6 +58,22 @@ connections), a memory warning, and fixes from the first tests on the Raspberry 
   last saved on a computer (the date of the file on the `SHOWPLAYPI` drive) and the build time of the image.
   `/showplaypi/system` reports whether the clock is synchronised.
 
+- **Companion commands as on CompanionPi:** `sudo companion-update` (latest stable or beta, a specific or
+  older version, or a URL – also without questions: `sudo companion-update stable 5.0.7`),
+  `sudo companion-config` (launch options such as the admin port), `sudo companion-reset` and `companion-help`
+  work as on Bitfocus' CompanionPi. `companion-update` also installs the offline module bundle of the new
+  version, changes nothing if a download fails, and keeps the previous version:
+  `sudo companion-update previous` switches back. A changed admin port is followed by the screen, OSC and the
+  UPnP announcement.
+
+### Changed
+- Bitfocus Companion 5.0.7 (was 5.0.6), with the offline module bundle of this version.
+- Companion is installed as on CompanionPi: `/opt/companion` holds only the headless part of Companion's
+  build (about 300 MB less), and its launch options are in `/etc/companion/config.yaml`.
+- Companion allows shell commands (e.g. the internal "run shell command" action), shows its version
+  notifications and uses IPv4 only (its admin interface listens on 0.0.0.0) by default; all can be changed
+  with `sudo companion-config`.
+
 ### Known issues
 - Only the HDMI port next to the USB-C socket is fully supported; both outputs with the same picture are
   planned for 1.1.

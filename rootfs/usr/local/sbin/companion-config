@@ -1,0 +1,61 @@
+#!/bin/bash
+# companion-config – edits Companion's launch options (/etc/companion/config.yaml: admin port and address, log
+# level, syslog, restricted modules, shell commands …) with Companion's own configuration tool, the same way as
+# on Bitfocus' CompanionPi (https://github.com/bitfocus/companion-pi, MIT License). Companion is restarted to
+# apply a change. Companion's own settings (connections, buttons) are made in its web interface.
+
+set -e
+
+if [[ $(id -u) -ne 0 ]]; then
+    echo "Must be run as root. Try sudo companion-config"
+    exit 1
+fi
+
+if [ ! -f /opt/companion/config-tool.js ]; then
+    echo "The installed version of Companion does not support the configuration tool."
+    echo "Update to a newer version with 'sudo companion-update' first."
+    exit 1
+fi
+
+SERVICE=showplaypi-companion.service
+export COMPANION_CONFIG_FILE=/etc/companion/config.yaml
+
+# Creates the file with all options (commented defaults) if it does not exist yet
+/usr/local/sbin/showplaypi-companion-setup >/dev/null
+
+NODE_EXE=/opt/companion/node-runtime/bin/node
+[ -d /opt/companion/node-runtime ] || NODE_EXE=/opt/companion/node-runtimes/main/bin/node
+
+config_checksum() {
+    md5sum "$COMPANION_CONFIG_FILE" 2>/dev/null || true
+}
+
+before=$(config_checksum)
+port_before=$(/usr/local/bin/showplaypi-companion-port)
+
+"$NODE_EXE" /opt/companion/config-tool.js edit
+
+after=$(config_checksum)
+
+if [ "$before" == "$after" ]; then
+    echo ""
+    echo "No changes made."
+    exit 0
+fi
+
+echo ""
+if systemctl is-active --quiet "$SERVICE"; then
+    echo "Applying changes by restarting Companion..."
+    systemctl restart "$SERVICE"
+else
+    echo "Changes saved. They will apply the next time Companion starts (Companion mode)."
+fi
+
+# A new admin port: the screen (Companion's emulators) and the UPnP announcement follow it
+port_after=$(/usr/local/bin/showplaypi-companion-port)
+if [ "$port_before" != "$port_after" ]; then
+    echo "Companion's web interface is now on port $port_after: http://$(hostname).local:$port_after"
+    systemctl try-restart showplaypi-upnp.service
+    [ -e /run/showplaypi/mode-companion ] && systemctl try-restart showplaypi-kiosk.service
+fi
+exit 0

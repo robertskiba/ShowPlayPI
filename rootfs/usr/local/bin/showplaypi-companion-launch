@@ -1,0 +1,31 @@
+#!/bin/bash
+# Starts Bitfocus Companion (showplaypi-companion.service, as the user admin) – the same way as Bitfocus'
+# CompanionPi (launch.sh, https://github.com/bitfocus/companion-pi, MIT): /opt/companion holds the "resources"
+# folder of Companion's Linux build, and the launch options come from /etc/companion/config.yaml, which
+# `sudo companion-config` edits. ShowPlayPI only fixes where Companion keeps its configuration.
+
+CONFIG_DIR="/home/admin/companion"
+export COMPANION_CONFIG_FILE="/etc/companion/config.yaml"
+
+cd /opt/companion || exit 1
+
+# The Node runtime moved in Companion 3.5
+NODE_EXE=/opt/companion/node-runtime/bin/node
+[ -d /opt/companion/node-runtime ] || NODE_EXE=/opt/companion/node-runtimes/main/bin/node
+
+# Without IPv6 the admin interface would not start on its default address
+if ! ip -6 address show 2>/dev/null | grep -q inet6; then
+    export DISABLE_IPV6=1
+fi
+
+if [ -f /opt/companion/config-tool.js ]; then
+    # Environment and command-line options from the configuration file ("set -- …" replaces the arguments)
+    # shellcheck disable=SC1090
+    source <("$NODE_EXE" /opt/companion/config-tool.js generate) || exit 1
+    exec "$NODE_EXE" /opt/companion/main.js "$@" --config-dir "$CONFIG_DIR"
+fi
+
+# Older Companion versions without the configuration tool (same defaults: shell commands allowed, IPv6 off)
+export COMPANION_ENABLE_SHELL_COMMAND_SUPPORT=1
+export DISABLE_IPV6=1
+exec "$NODE_EXE" /opt/companion/main.js --config-dir "$CONFIG_DIR" --admin-port 8000 "$@"

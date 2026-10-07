@@ -157,7 +157,9 @@ bash "$SRC/scripts/install-boot.sh" "$SRC/bootfs" "$ROOT/boot/firmware" | sed 's
 log "Installing Companion and the Ontime container image"
 rm -rf "$ROOT/opt/companion"
 mkdir -p "$ROOT/opt/companion"
-tar -xzf "$COMPANION_PACKAGE" -C "$ROOT/opt/companion" --strip-components=1 --no-same-owner
+# Only the "resources" folder (Companion headless, without the desktop app) – the layout of Bitfocus'
+# CompanionPi, so companion-update works the same way
+tar -xzf "$COMPANION_PACKAGE" --strip-components=2 --no-same-owner -C "$ROOT/opt/companion" --wildcards '*/resources'
 install -D -m 644 "$COMPANION_BUNDLE" "$ROOT/usr/share/showplaypi/companion/companion-offline-module-bundle.tar.gz"
 install -D -m 644 "$ONTIME_CACHE" "$ROOT/usr/share/showplaypi/containers/$ONTIME_ARCHIVE"
 # A freshly flashed card should only show the user files, even before the first start

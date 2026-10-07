@@ -326,7 +326,8 @@ time are sent once per second while playing and immediately on start, pause and 
 Browser mode plus Bitfocus Companion running on the device (native, `/opt/companion`): the kiosk browser
 always starts with Companion's **emulator chooser**, and all browser commands work (e.g.
 `/showplaypi/browser/home` returns to the chooser, `/showplaypi/browser/url` shows any other page). The
-admin interface is at `http://<device name>.local:8000`. Pressing buttons, switching pages or setting
+admin interface is at `http://<device name>.local:8000` (another port can be set with
+`sudo companion-config`; the commands below follow it). Pressing buttons, switching pages or setting
 variables is done through **Companion's own OSC and HTTP interfaces** – ShowPlayPI does not duplicate them.
 Companion's own OSC receiver is off by default (port `12321` when enabled); it must not be set to
 ShowPlayPI's port `23878`.

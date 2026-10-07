@@ -1,0 +1,6 @@
+#!/bin/bash
+# Port of Companion's admin interface: adminPort in /etc/companion/config.yaml (set with
+# `sudo companion-config`), otherwise Companion's default 8000.
+
+port="$(sed -n -E 's/^adminPort:[[:space:]]*"?([0-9]+)"?[[:space:]]*(#.*)?$/\1/p' /etc/companion/config.yaml 2>/dev/null | tail -n 1)"
+echo "${port:-8000}"

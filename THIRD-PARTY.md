@@ -73,4 +73,8 @@ Podman). They remain under their own licenses:
 | [Ontime](https://github.com/cpvalente/ontime) | GPL-3.0-or-later (covered by the written offer above) |
 | [Bitfocus Companion](https://github.com/bitfocus/companion) | MIT (core); device modules – including the offline module bundle in the image – under their own, mostly MIT licenses |
 
+The commands `companion-update`, `companion-config`, `companion-reset` and `companion-help` are adapted from
+Bitfocus' [CompanionPi](https://github.com/bitfocus/companion-pi) (MIT License, Copyright (c) 2022 Bitfocus
+AS); its version picker is included almost unchanged (`/usr/local/lib/showplaypi/companion-update-prompt.py`).
+
 ShowPlayPI is not affiliated with or endorsed by the Ontime or Bitfocus Companion projects.

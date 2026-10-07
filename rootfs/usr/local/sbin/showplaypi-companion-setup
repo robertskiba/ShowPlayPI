@@ -1,0 +1,35 @@
+#!/bin/bash
+# Prepares Bitfocus Companion before it starts (showplaypi-companion.service, ExecStartPre as root) and after
+# `companion-update`:
+#   - /opt/companion holds only the "resources" folder of Companion's Linux build, as on Bitfocus' CompanionPi
+#     (devices updated from an earlier ShowPlayPI had the whole package there – converted once)
+#   - /etc/companion/config.yaml, the launch options edited with `sudo companion-config`: created with
+#     commented defaults, and options of a newer Companion are added (Companion's own config-tool; existing
+#     values are kept)
+#   - /opt/companion-module-dev for modules in development (as on CompanionPi)
+
+if [ -f /opt/companion/resources/main.js ] && [ ! -f /opt/companion/main.js ]; then
+    rm -rf /opt/companion.package
+    mv /opt/companion /opt/companion.package &&
+        mv /opt/companion.package/resources /opt/companion &&
+        rm -rf /opt/companion.package &&
+        echo "Companion: converted to the layout of CompanionPi (/opt/companion = resources)."
+fi
+
+install -d -o admin -g admin -m 755 /opt/companion-module-dev
+
+NODE_EXE=/opt/companion/node-runtime/bin/node
+[ -d /opt/companion/node-runtime ] || NODE_EXE=/opt/companion/node-runtimes/main/bin/node
+
+if [ -f /opt/companion/config-tool.js ] && [ -x "$NODE_EXE" ]; then
+    install -d -o root -g root -m 755 /etc/companion
+    # ShowPlayPI defaults: shell commands allowed (e.g. the internal "run shell command" action), version
+    # notifications shown (Companion's default), IPv6 off (the admin interface binds to IPv4 0.0.0.0). --set
+    # only gives the first value of an option; changes made with companion-config are kept
+    COMPANION_CONFIG_FILE=/etc/companion/config.yaml "$NODE_EXE" /opt/companion/config-tool.js init \
+        --set extraModulePath=/opt/companion-module-dev \
+        --set enableShellCommandSupport=true \
+        --set notifications=true \
+        --set disableIpv6=true 2>&1 | grep -v "already up to date"
+fi
+exit 0

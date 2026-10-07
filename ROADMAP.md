@@ -201,6 +201,15 @@ Pi 5 – with and without a display, with and without network.
       connection uses them. Updated together with Companion (2.0)
 - [x] **Backups on the SHOWPLAYPI drive:** Companion's backup folder is a link to `COMPANION/BACKUP/` (no
       change to Companion's configuration); the log stays in the system journal
+- [x] **Commands as on CompanionPi** (2026-10-07, tested on the Pi 5): `companion-update` (version picker of
+      CompanionPi; also downloads the offline module bundle, unpacks before touching the installed version,
+      keeps the previous one – `companion-update previous`), `companion-config` (Companion's own config-tool,
+      `/etc/companion/config.yaml`), `companion-reset`, `companion-help`. `/opt/companion` has CompanionPi's
+      layout (only `resources`), started like CompanionPi's `launch.sh`; the admin port from the config file
+      is followed by the start page, OSC and UPnP. Betas have no offline module bundle (modules from the store).
+      ShowPlayPI defaults: shell commands allowed, version notifications shown, IPv6 off (changeable with
+      companion-config)
+      Not yet tested: `companion-config` interactively, `companion-reset`
 
 ### Ontime mode (first version) ✅
 - [x] Ontime 4 in a Podman container (`showplaypi-ontime.service`, host network, data in `/home/admin/ontime`,
@@ -314,6 +323,7 @@ Pi 5 – with and without a display, with and without network.
   - **Health check** after the update (browser/OSC/services up); on failure automatic **rollback** to the
     previous version.
   - Updates ShowPlayPI files and packages only, never the whole operating system.
+  - Companion: built on `companion-update stable` (already in 1.0), keeping the major version.
   - Manual update via SSH (`showplaypi-update`) for devices without internet at boot.
   - Requires the repository (or at least its releases) to be public.
 - [ ] **Companion updates:** download the newest build within the major version (5.x) from Bitfocus' package
