@@ -31,9 +31,29 @@ EXTRACT_SHA256=$(xz -dc "$XZ" | sha256sum | cut -d' ' -f1)
 
 # init_format "none": no OS customisation in the Imager – ShowPlayPI brings its own configuration
 # (showplaypi.ini), and hostname/user/Wi-Fi settings from the Imager would interfere with it.
+# "imager" lists the supported devices (as in Raspberry Pi's own list): needed when the file is opened on its
+# own (rpi-imager --repo <address>); as a sublist of the official list only "os_list" is used.
 OUT=${XZ%.img.xz}.rpi-imager.json
 cat > "$OUT" <<EOF
 {
+  "imager": {
+    "devices": [
+      {
+        "name": "Raspberry Pi 5",
+        "tags": ["pi5-64bit"],
+        "icon": "https://downloads.raspberrypi.com/imager/icons/RPi_5.png",
+        "description": "Raspberry Pi 5",
+        "matching_type": "exclusive"
+      },
+      {
+        "name": "Raspberry Pi 4",
+        "tags": ["pi4-64bit"],
+        "icon": "https://downloads.raspberrypi.com/imager/icons/RPi_4.png",
+        "description": "Raspberry Pi 4 Model B",
+        "matching_type": "exclusive"
+      }
+    ]
+  },
   "os_list": [
     {
       "name": "ShowPlayPI",
