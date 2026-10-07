@@ -6,6 +6,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] – 2026-10-07
+
+The first stable release. Compared with 1.0.0-beta.3 it brings a time server for the network and a clock
+that is right even without internet, Companion with all modules on board (no internet needed to add
+connections), a memory warning, and fixes from the first tests on the Raspberry Pi 4.
+
 ### Fixed
 - **Clock right after the start:** the clock was only set up to several minutes after the network was up (the
   time service did not notice the connection), and until then every HTTPS connection failed – e.g. Companion
@@ -51,6 +57,14 @@ versions follow [Semantic Versioning](https://semver.org/).
   of: the time saved during the last run (every 10 minutes and at shutdown), the time `showplaypi.ini` was
   last saved on a computer (the date of the file on the `SHOWPLAYPI` drive) and the build time of the image.
   `/showplaypi/system` reports whether the clock is synchronised.
+
+### Known issues
+- Only the HDMI port next to the USB-C socket is fully supported; both outputs with the same picture are
+  planned for 1.1.
+- Video: crossfades fade through black for now; on the Pi 5, H.264 videos are only smooth up to 1080p30.
+- Tested mainly on the Raspberry Pi 5; on the Pi 4 the browser mode is tested at an event, the other modes
+  are still being tested – fixes follow as 1.0.x.
+- Configuration via USB-C depends on the power the computer's USB port delivers.
 
 ## [1.0.0-beta.3] – 2026-09-26
 
@@ -231,7 +245,8 @@ First beta of ShowPlayPI.
 - Configuration via USB-C depends on the power the computer's USB port delivers.
 - See `ROADMAP.md`, release 1.0, for the complete list.
 
-[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.3...HEAD
+[Unreleased]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.3...v1.0.0
 [1.0.0-beta.3]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.2...v1.0.0-beta.3
 [1.0.0-beta.2]: https://github.com/robertskiba/ShowPlayPI/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/robertskiba/ShowPlayPI/releases/tag/v1.0.0-beta.1

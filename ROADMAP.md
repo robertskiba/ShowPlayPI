@@ -43,7 +43,7 @@ More modes should be easy to add later.
 | Release | Goal | Depends on |
 |---|---|---|
 | Groundwork ✅ | Repository, build, deploy, review (no release) | – |
-| **1.0** | **First public release:** four modes (browser, video, Companion, Ontime) and the audio player as first versions, drive `SHOWPLAYPI`, Windows configurator – betas `1.0.0-beta.N`, then `1.0.0-rc.N` | Groundwork |
+| **1.0** ✅ | **First stable release** (2026-10-07): four modes (browser, video, Companion, Ontime) and the audio player as first versions, drive `SHOWPLAYPI`, Windows configurator – after the betas `1.0.0-beta.1` to `-beta.3`; fixes from further hardware tests as `1.0.x` | Groundwork |
 | **1.1** | Display and kiosk: both HDMI outputs, rotation, URL allow list, Bonjour, status page | 1.0 |
 | **1.2** | The modes, second round: shared OSC service with feedbacks, video crossfades, Companion/Ontime without browser, file checks | 1.0 |
 | **2.0** | Updates and security: auto-update (ShowPlayPI, Companion, Ontime), factory reset, own passwords, configurator wizard | 1.x |
@@ -52,8 +52,8 @@ More modes should be easy to add later.
 | **3.0** | Companion module, distribution | 1.2 |
 | **3.1** | Companion Satellite: USB control surfaces on the Pi for a remote Companion (extra) | 2.0 |
 
-Release path to 1.0.0 (decided 2026-09-26): `1.0.0-beta.3` (first public beta) → fixes from the tests on
-Pi 5 and Pi 4 → `1.0.0-rc.1` → `1.0.0` when no more errors turn up.
+Release path: `1.0.0-beta.3` (first public beta, 2026-09-26) → `1.0.0` (2026-10-07, directly, without a
+release candidate) → fixes from the remaining hardware tests as `1.0.x`.
 
 ---
 
@@ -65,10 +65,10 @@ Pi 5 and Pi 4 → `1.0.0-rc.1` → `1.0.0` when no more errors turn up.
 
 ## 1.0 – First public release
 
-Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definition of done is met.
-**beta.3** brings everything below that is marked as done – most of it first versions tested on a Pi 5.
+Released as **1.0.0** on 2026-10-07 after the betas `1.0.0-beta.1` to `-beta.3`. Everything below that is
+marked as done is in 1.0.0 – most of it first versions tested on a Pi 5.
 
-### Open before 1.0.0
+### Tests after 1.0.0 (fixes as 1.0.x)
 
 - [ ] **Test the built image from factory on Pi 5 and Pi 4B** – flashing with the Imager, first start
       (partitions, drive `SHOWPLAYPI`), every mode, audio player, USB configuration mode, network share, OSC,
@@ -100,7 +100,7 @@ Iterated as betas (`1.0.0-beta.1`, `-beta.2`, `-beta.3` …) until the definitio
       runs on PoE; verify stable operation under load and the HAT fan control
 - [x] Version number visible on the setup page (2026-09-27: with release date and operating mode in the first panel; INI, configurator and SSH banner show it as well)
 - [x] **Published:** the repository is public, `1.0.0-beta.3` is released on GitHub with image, checksum and
-      configurator EXE (2026-09-26)
+      configurator EXE (2026-09-26); `1.0.0` follows on 2026-10-07
 - [ ] Imager list at its permanent address `https://raw.githubusercontent.com/robertskiba/ShowPlayPI/main/rpi-imager.json`
       (`rpi-imager.json` in the main folder, updated by every release build – done): test it with
       `rpi-imager --repo <address>` once the repository is public, then apply for the official Imager list
@@ -453,6 +453,9 @@ Stream Deck and other USB control surfaces plugged into the Pi work with a **Com
 - **Automatic conversion to HEVC on the device** (2026-09-26): optional (`[VIDEO] CONVERT=no|idle|always`,
   default `no`), in release 1.2 – originals are kept in `ORIGINALS/VIDEO/`, the HandBrake preset stays the
   fast way on a computer. Details under 1.2.
+- **1.0.0 directly, without a release candidate** (2026-10-07): the image built as `1.0.0-rc.1` was only
+  used for internal tests; the remaining hardware tests (Pi 4, PoE, RTC battery, power from a PC) follow
+  after the release, fixes as `1.0.x`.
 - **Release path** (2026-09-26): `1.0.0-beta.3` is the first public beta; after the tests on Pi 5 and Pi 4
   `1.0.0-rc.1`, then `1.0.0`. The roadmap was reorganised around what is already in 1.0.
 - **Audio player as an extra, not a mode** (2026-09-25): switched on with `[AUDIO] ENABLED=yes` in any of the

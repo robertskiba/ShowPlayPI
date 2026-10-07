@@ -102,8 +102,9 @@ hands the partition to a computer connected via USB-C and takes it back afterwar
 
 ## Versions
 
-ShowPlayPI has not been released yet. The first public release will be **1.0.0**; until then there are
-betas (`1.0.0-beta.1`, `1.0.0-beta.2`, …), tagged `v1.0.0-beta.N`.
+The first stable release is **1.0.0** (2026-10-07), after the betas `1.0.0-beta.1` to `1.0.0-beta.3`. Versions
+follow semantic versioning: fixes as `1.0.x`, new features as `1.x.0`, `2.0.0` for incompatible changes of
+`showplaypi.ini`.
 
 The version number lives in `rootfs/etc/showplaypi-release`. Every release gets a Git tag `vX.Y.Z`.
 

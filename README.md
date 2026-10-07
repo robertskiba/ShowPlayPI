@@ -8,10 +8,9 @@ dashboard, a schedule, a sign), a looping video and slideshow player, a Companio
 timer display. You configure it with a simple Windows program or a text file – no Linux, no command line –
 and control it live via OSC.
 
-> **Status: beta.** ShowPlayPI is in active development. The current version is `1.0.0-beta.3`, with first
-> versions of the video, Companion and Ontime modes and the audio player. The first stable release will be
-> 1.0.0. See [known issues](#known-issues) before using it at a show, and the [roadmap](ROADMAP.md) for what
-> comes next.
+> **Version 1.0.0** – the first stable release. The video, Companion and Ontime modes and the audio player
+> are first versions; see [known issues](#known-issues) before using it at a show, and the
+> [roadmap](ROADMAP.md) for what comes next.
 
 ## Modes
 
@@ -60,8 +59,8 @@ e.g. via OSC. The **audio player** is an optional extra that can be switched on 
 
 ## What you need
 
-- **Raspberry Pi 5 or Raspberry Pi 4 Model B** (the Pi 5 is the main platform; the Pi 4 is still being tested
-  in the beta). For the Companion mode the RAM decides how many connections are possible – every Companion
+- **Raspberry Pi 5 or Raspberry Pi 4 Model B** (the Pi 5 is the main platform and the most tested; the Pi 4
+  is supported as well). For the Companion mode the RAM decides how many connections are possible – every Companion
   connection is a program of its own (about 25–35 MB each): **1 GB** only for small setups (up to about 5
   connections), **2 GB** for typical events, **4 GB** recommended for large setups. When the memory runs
   low, ShowPlayPI logs a warning (`journalctl -u showplaypi-monitor`), and `/showplaypi/system` reports it
@@ -305,12 +304,13 @@ address is sent to it); set a fixed time zone to avoid this.
 
 ## Known issues
 
-In this beta:
+In version 1.0:
 
 - Only the HDMI port **next to the USB-C socket** is fully supported; both outputs with the same picture
   are planned for 1.1.
 - The video, Companion and Ontime modes and the audio player are first versions: crossfades between videos
-  fade through black for now, and everything is tested on the Pi 5 so far, not yet on the Pi 4.
+  fade through black for now. They are tested mainly on the Pi 5; on the Pi 4 the browser mode is tested,
+  the other modes are still being tested.
 - Companion on a 1 GB Pi: with about 15 connections the memory is nearly used up, with 30 connections the
   device stalls. Use a Pi with 2 or 4 GB for larger Companion setups.
 - Configuration via USB-C depends on the power the computer's USB port delivers; the Pi 5 needs a USB-C
