@@ -10,6 +10,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 - OSC `/showplaypi/system` also reports what a controller talks to: product, version, OSC interface version,
   device name, model, operating mode and the switched-on extras (`audio`) – the Companion module offers only
   what works in the active mode. The video and audio status contain `updated` (when the times were taken).
+- The SSH login text shows the operating mode and the commands of the active mode – in the Companion mode the
+  web address and `companion-update`, `companion-config`, `companion-reset`; in the Ontime and video mode and
+  for the audio player how to restart them and where their log is.
 
 ### Changed
 - OSC `…/video/status`, `…/video/list`, `…/audio/status` and `…/audio/list` answer at once instead of after
